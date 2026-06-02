@@ -1,0 +1,86 @@
+/* src/App.css (add this at the end) */
+body { background-color: #282c34; color: white; font-family: sans-serif; }
+.App { text-align: center; }
+.App-header { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.card { background-color: #3a3f4a; padding: 2rem; border-radius: 12px; width: 90%; max-width: 500px; margin-top: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+input, button { width: 95%; padding: 14px; margin: 10px 0; border-radius: 6px; border: none; font-size: 1rem; }
+input[type="file"] { color: #ccc; }
+button { background-color: #61dafb; color: #282c34; font-weight: bold; cursor: pointer; transition: background-color 0.2s; }
+button:hover { background-color: #52b8d8; }
+button:disabled { background-color: #555; color: #aaa; cursor: not-allowed; }
+.status-text { margin-top: 1.5rem; font-size: 0.9rem; word-wrap: break-word; color: #b0b0b0; }
+.connect-button {
+  background-color: #4CAF50; /* Green */
+  border: none;
+  color: white;
+  padding: 15px 32px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 16px;
+  margin: 4px 2px;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background-color 0.3s;
+}
+
+.connect-button:hover {
+  background-color: #45a049;
+}
+/* Add this to the end of src/App.css */
+
+.record-display {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background-color: #282c34;
+  border-radius: 8px;
+  text-align: left;
+  word-wrap: break-word;
+}
+
+.record-display h4 {
+  margin-top: 0;
+  color: #61dafb;
+}
+
+.record-display a {
+  color: #61dafb;
+  text-decoration: none;
+}
+
+.record-display a:hover {
+  text-decoration: underline;
+}
+/* Add this to the end of src/App.css */
+.feedback-text {
+  margin-top: 1.5rem;
+  font-size: 1rem;
+  padding: 10px;
+  border-radius: 5px;
+  max-width: 500px;
+  word-wrap: break-word;
+}
+
+.feedback-text.info {
+  color: #61dafb;
+}
+
+.feedback-text.success {
+  color: #4CAF50;
+  font-weight: bold;
+}
+
+.feedback-text.error {
+  color: #f44336;
+  font-weight: bold;
+}
+/* Add this to the end of your App.css */
+.analysis-select {
+  width: 100%;
+  padding: 14px;
+  margin: 10px 0;
+  border-radius: 6px;
+  border: none;
+  font-size: 1rem;
+  background-color: white;
+}

@@ -1,0 +1,9 @@
+fastapi[all]
+transformers
+torch
+torchvision
+opencv-python
+numpy
+Pillow
+reportlab
+qrcode[pil]
