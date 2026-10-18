@@ -1,26 +1,32 @@
-# Security Policy
+# Security policy
 
-## Sensitive Data
+## Reporting a vulnerability
 
-Do not commit:
+Report security issues privately to the maintainer through a
+[GitHub security advisory](https://github.com/HunarAgrawal/MEDICHAIN/security/advisories/new).
+Do not open a public issue.
 
-- `.env` files
-- API keys or JWTs
-- Wallet private keys or seed phrases
-- Real patient scans, patient identifiers, or medical reports
-- Generated PDFs containing patient data
+## Security model
 
-Use `.env.example` to document required variables without exposing real values.
+The README's [security model](README.md#security-model) describes how authentication, on-chain
+authorization, encryption at rest and request hardening work.
 
-## Credential Rotation
+## Keys and secrets
 
-If a credential is committed, pasted into chat, or shared in a screenshot:
+| Secret                | Where it lives      | If it leaks                                                                                  |
+| --------------------- | ------------------- | -------------------------------------------------------------------------------------------- |
+| `ENCRYPTION_KEY`      | `backend/.env`      | Every stored file can be decrypted by whoever holds it and the CIDs. Rotate and re-encrypt.   |
+| `JWT_SECRET`          | `backend/.env`      | Sessions can be forged. Rotate it; all users must sign in again.                             |
+| `PINATA_JWT`          | `backend/.env`      | Revoke it in the Pinata dashboard and create a new one.                                      |
+| Deployer private key  | Hardhat keystore    | Move funds and contract ownership work to a new key.                                         |
 
-1. Revoke it immediately in the provider dashboard.
-2. Create a new credential.
-3. Update only your local `.env`.
-4. Check Git history before pushing.
+- **Back up `ENCRYPTION_KEY`.** Losing it makes every stored scan and report unreadable.
+- Never put secrets in `frontend/.env`: everything there is bundled into public JavaScript.
+- After any leak: revoke, rotate, update only your local `.env`, and check git history before
+  pushing.
 
-## Reporting Issues
+## Data handling
 
-Report security issues privately to the project maintainer instead of opening a public issue.
+- Do not commit `.env` files, real patient scans, patient identifiers or generated reports.
+- Patient IDs are stored on-chain in plain text. Use pseudonymous IDs.
+- Use synthetic or properly consented data for demos, on testnets only.

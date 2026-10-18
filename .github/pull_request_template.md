@@ -1,13 +1,14 @@
 ## Summary
 
-- 
+-
 
 ## Checks
 
-- [ ] `npm test -- --watchAll=false`
-- [ ] `npm run build`
-- [ ] `python -m py_compile main.py test_model.py`
+- [ ] `make lint` passes
+- [ ] `make test` passes
+- [ ] If the contract interface changed: `frontend/src/lib/chain.ts` (ABI) and `backend/app/chain.py` (selectors) are updated
 
-## Security Review
+## Security review
 
-- [ ] No `.env` files, API keys, JWTs, private keys, patient data, or generated reports are included.
+- [ ] No `.env` files, keys, JWTs, wallet secrets, patient data or generated reports are included
+- [ ] New endpoints require sign-in unless they only expose public configuration
