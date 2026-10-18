@@ -1,0 +1,14 @@
+/node_modules
+
+# Hardhat build output
+/artifacts
+/cache
+
+# TypeChain output
+/types
+/typechain-types
+
+/coverage
+
+# Local deployments
+/ignition/deployments/chain-31337/
