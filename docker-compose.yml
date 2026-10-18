@@ -1,0 +1,15 @@
+# Local development services. Ports bind to 127.0.0.1 only: the Kubo API must never be public.
+name: medichain
+
+services:
+  ipfs:
+    image: ipfs/kubo:v0.43.1
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5001:5001" # RPC API (used by the backend)
+      - "127.0.0.1:8080:8080" # Gateway
+    volumes:
+      - ipfs-data:/data/ipfs
+
+volumes:
+  ipfs-data:
