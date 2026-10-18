@@ -1,0 +1,50 @@
+[project]
+name = "medichain-backend"
+version = "0.2.0"
+description = "Medichain API: wallet-authenticated scan analysis, encrypted IPFS storage and on-chain access checks."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic-settings>=2.6",
+    "python-multipart>=0.0.18",
+    "httpx>=0.28",
+    "numpy>=2.0",
+    "pillow>=11.0",
+    "torch>=2.6",
+    "transformers>=4.50,<6",
+    "reportlab>=4.2",
+    "cryptography>=44",
+    "pyjwt>=2.10",
+    "eth-account>=0.13",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
