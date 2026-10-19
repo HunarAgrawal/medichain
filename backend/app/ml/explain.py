@@ -50,9 +50,16 @@ def grad_cam(model: torch.nn.Module, pixel_values: torch.Tensor, target: int) ->
     return _normalize(cam.detach().float().cpu().numpy())
 
 
-def overlay(image: Image.Image, heatmap: np.ndarray, max_alpha: float = 0.6) -> Image.Image:
-    """Blend a [0, 1] heatmap onto the image; low-activation areas stay untouched."""
-    heat = Image.fromarray(np.uint8(heatmap * 255)).resize(image.size, Image.Resampling.BICUBIC)
+def overlay(
+    image: Image.Image, heatmap: np.ndarray, max_alpha: float = 0.6, keep_top: float = 0.35
+) -> Image.Image:
+    """Blend the strongest ``keep_top`` share of a [0, 1] heatmap onto the image.
+
+    Attention maps are diffuse; showing only the top regions keeps the overlay readable.
+    """
+    floor = float(np.quantile(heatmap, 1 - keep_top))
+    focused = np.clip((heatmap - floor) / max(float(heatmap.max()) - floor, 1e-8), 0, 1)
+    heat = Image.fromarray(np.uint8(focused * 255)).resize(image.size, Image.Resampling.BICUBIC)
     intensity = np.asarray(heat, dtype=np.float32)[..., None] / 255.0
     base = np.asarray(image.convert("RGB"), dtype=np.float32)
     blended = base * (1 - max_alpha * intensity) + _jet(intensity[..., 0]) * max_alpha * intensity

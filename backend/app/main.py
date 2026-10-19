@@ -8,10 +8,12 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from app.chain import ChainError, RecordsContract
+from app.chain import ChainError
 from app.config import Settings
+from app.db import init_db
 from app.errors import register_error_handlers
 from app.routes import api_router
 from app.services import Services, build_services
@@ -25,8 +27,12 @@ _SECURITY_HEADERS = {
     "Cache-Control": "no-store",
 }
 _API_CSP = "default-src 'none'; frame-ancestors 'none'"
+_UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+# Browsers only send custom headers cross-origin after a CORS preflight we control, so
+# requiring one on state-changing requests blocks CSRF even if a cookie leaks cross-site.
+CSRF_HEADER = "X-Requested-With"
 # Per-request INFO logs from these libraries add noise (and IPFS/RPC URLs) to every request.
-_NOISY_LOGGERS = ("httpx", "httpx2", "huggingface_hub", "transformers")
+_NOISY_LOGGERS = ("httpx", "httpx2", "huggingface_hub", "transformers", "aiosqlite")
 
 
 def create_app(settings: Settings | None = None, services: Services | None = None) -> FastAPI:
@@ -41,22 +47,25 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if services is not None:
-            app.state.services = services
+            await _start(app, services)
             yield
+            await services.db_engine.dispose()
             return
         timeout = httpx.Timeout(60.0, connect=5.0)
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as http:
-            app.state.services = build_services(settings, http)
-            await _check_chain(app.state.services)
+            built = build_services(settings, http)
+            await _start(app, built)
+            await _check_chain(built)
             if settings.preload_models:
-                await run_in_threadpool(app.state.services.engine.preload)
+                await run_in_threadpool(built.ml.preload)
             logger.info("Medichain API ready (IPFS: %s)", settings.ipfs_provider)
             yield
+            await built.db_engine.dispose()
 
     docs_enabled = settings.enable_docs
     app = FastAPI(
         title="Medichain API",
-        version="0.2.0",
+        version="0.3.0",
         lifespan=lifespan,
         docs_url="/docs" if docs_enabled else None,
         redoc_url=None,
@@ -65,23 +74,30 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
-        allow_methods=["GET", "POST"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PATCH", "DELETE"],
+        allow_headers=["Content-Type", CSRF_HEADER],
         expose_headers=["Content-Disposition", "Retry-After"],
         max_age=600,
     )
 
     @app.middleware("http")
-    async def security_headers(
+    async def guard(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
         started = time.perf_counter()
-        response = await call_next(request)
+        is_api = request.url.path.startswith("/api/")
+        if is_api and request.method in _UNSAFE_METHODS and CSRF_HEADER not in request.headers:
+            response: Response = JSONResponse(
+                {"detail": "Missing X-Requested-With header."}, status_code=403
+            )
+        else:
+            response = await call_next(request)
         for name, value in _SECURITY_HEADERS.items():
             response.headers.setdefault(name, value)
-        if request.url.path.startswith("/api/"):
+        if is_api:
             response.headers.setdefault("Content-Security-Policy", _API_CSP)
-        # Log the route template, never the concrete path: it can contain a patient ID.
+        # Log the route template, never the concrete path.
         route = getattr(request.scope.get("route"), "path", "-")
         elapsed_ms = (time.perf_counter() - started) * 1000
         logger.info(
@@ -94,15 +110,19 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     return app
 
 
+async def _start(app: FastAPI, services: Services) -> None:
+    await init_db(services.db_engine)
+    async with services.db() as db:
+        await services.sessions.purge_expired(db)
+        await db.commit()
+    app.state.services = services
+
+
 async def _check_chain(services: Services) -> None:
-    if not isinstance(services.records, RecordsContract):
-        return
     try:
-        chain_id = await services.records.chain_id()
+        status = await services.registry.status()
     except ChainError as exc:
         logger.warning("Blockchain RPC unreachable at startup: %s", exc)
         return
-    if chain_id != services.settings.chain_id:
-        logger.warning(
-            "RPC chain id %s does not match CHAIN_ID=%s", chain_id, services.settings.chain_id
-        )
+    if status.owner != status.operator:
+        logger.warning("OPERATOR_PRIVATE_KEY does not own the registry at CONTRACT_ADDRESS")

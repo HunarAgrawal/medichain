@@ -4,46 +4,53 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 
 import httpx
+from eth_account import Account
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from app.auth import RateLimiter, WalletAuth
-from app.chain import RecordsContract, RecordsReader
+from app.auth import RateLimiter, SessionManager
+from app.chain import Registry, RegistryClient
 from app.config import Settings
+from app.db import create_engine, create_sessionmaker
 from app.ml.engine import Engine, TransformersEngine
 from app.storage import IpfsStorage, create_storage
+from app.wallets import WalletVault
 
 
 @dataclass
 class RateLimits:
-    sign_in: RateLimiter = field(default_factory=lambda: RateLimiter(20))
-    analysis: RateLimiter = field(default_factory=lambda: RateLimiter(10))
-    file_read: RateLimiter = field(default_factory=lambda: RateLimiter(60))
+    login_ip: RateLimiter = field(default_factory=lambda: RateLimiter(20))
+    login_account: RateLimiter = field(default_factory=lambda: RateLimiter(5))
+    analysis: RateLimiter = field(default_factory=lambda: RateLimiter(12))
+    file_read: RateLimiter = field(default_factory=lambda: RateLimiter(120))
+    chain_write: RateLimiter = field(default_factory=lambda: RateLimiter(20))
+    verify: RateLimiter = field(default_factory=lambda: RateLimiter(20))
 
 
 @dataclass
 class Services:
     settings: Settings
-    auth: WalletAuth
-    engine: Engine
+    db_engine: AsyncEngine
+    db: async_sessionmaker[AsyncSession]
+    sessions: SessionManager
+    vault: WalletVault
+    ml: Engine
     storage: IpfsStorage
-    records: RecordsReader
+    registry: Registry
     limits: RateLimits = field(default_factory=RateLimits)
 
 
-def build_auth(settings: Settings) -> WalletAuth:
-    return WalletAuth(
-        secret=settings.jwt_secret.get_secret_value(),
-        token_ttl=timedelta(minutes=settings.jwt_ttl_minutes),
-        app_url=settings.public_app_url,
-        chain_id=settings.chain_id,
-        allowed_wallets=settings.allowed_wallets,
-    )
-
-
 def build_services(settings: Settings, http: httpx.AsyncClient) -> Services:
+    engine = create_engine(settings.database_url)
+    operator = Account.from_key(settings.operator_private_key.get_secret_value())
     return Services(
         settings=settings,
-        auth=build_auth(settings),
-        engine=TransformersEngine(settings.model_ids, settings.device),
+        db_engine=engine,
+        db=create_sessionmaker(engine),
+        sessions=SessionManager(timedelta(hours=settings.session_ttl_hours)),
+        vault=WalletVault(settings.wallet_key_bytes),
+        ml=TransformersEngine(settings.model_ids, settings.device),
         storage=create_storage(settings, http),
-        records=RecordsContract(http, settings.chain_rpc_url, settings.contract_address),
+        registry=RegistryClient(
+            http, settings.chain_rpc_url, settings.contract_address, settings.chain_id, operator
+        ),
     )

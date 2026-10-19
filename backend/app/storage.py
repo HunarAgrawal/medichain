@@ -28,6 +28,8 @@ class IpfsStorage(Protocol):
 
     async def cat(self, cid: str) -> bytes: ...
 
+    async def ping(self) -> str: ...
+
 
 class KuboStorage:
     def __init__(self, client: httpx.AsyncClient, api_url: str) -> None:
@@ -51,6 +53,14 @@ class KuboStorage:
             "POST", f"{self._api}/api/v0/cat", params={"arg": validate_cid(cid)}
         )
         return await _read_limited(request)
+
+    async def ping(self) -> str:
+        try:
+            response = await self._client.post(f"{self._api}/api/v0/version")
+            response.raise_for_status()
+            return f"Kubo {response.json()['Version']}"
+        except (httpx.HTTPError, KeyError, ValueError) as exc:
+            raise StorageError(f"Kubo unreachable: {exc}") from exc
 
 
 class PinataStorage:
@@ -80,6 +90,16 @@ class PinataStorage:
     async def cat(self, cid: str) -> bytes:
         request = self._client.stream("GET", f"{self._gateway}/ipfs/{validate_cid(cid)}")
         return await _read_limited(request)
+
+    async def ping(self) -> str:
+        try:
+            response = await self._client.get(
+                "https://api.pinata.cloud/data/testAuthentication", headers=self._headers
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise StorageError(f"Pinata unreachable: {exc}") from exc
+        return "Pinata authenticated"
 
 
 def create_storage(settings: Settings, client: httpx.AsyncClient) -> IpfsStorage:

@@ -18,7 +18,7 @@ class AnalysisType:
 ANALYSIS_TYPES: dict[str, AnalysisType] = {
     "brain_tumor": AnalysisType(
         id="brain_tumor",
-        name="Brain tumor",
+        name="Brain tumor screening",
         modality="MRI",
         description="Classifies glioma, meningioma, pituitary tumor or no tumor.",
         labels={
@@ -30,7 +30,7 @@ ANALYSIS_TYPES: dict[str, AnalysisType] = {
     ),
     "chest_xray": AnalysisType(
         id="chest_xray",
-        name="Pneumonia",
+        name="Pneumonia screening",
         modality="Chest X-ray",
         description="Detects radiographic signs of pneumonia.",
         labels={"NORMAL": "Normal", "PNEUMONIA": "Pneumonia"},

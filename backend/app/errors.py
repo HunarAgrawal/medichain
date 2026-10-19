@@ -5,43 +5,52 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.auth import AuthError, WalletNotAllowedError
-from app.chain import AccessDeniedError, ChainError, RecordNotFoundError
+from app.chain import ChainError, ContractRejected
 from app.crypto import IntegrityError
 from app.ml.engine import ModelUnavailableError
 from app.storage import StorageError
 
 logger = logging.getLogger(__name__)
 
-# (status code, public message). A ``None`` message means the exception text is user-safe.
-_ERROR_RESPONSES: dict[type[Exception], tuple[int, str | None]] = {
-    WalletNotAllowedError: (403, None),
-    AuthError: (401, None),
-    AccessDeniedError: (403, "You do not have access to this record."),
-    RecordNotFoundError: (404, "No record exists for this patient ID."),
+# (status code, public message) per infrastructure error.
+_ERROR_RESPONSES: dict[type[Exception], tuple[int, str]] = {
     IntegrityError: (502, "The stored file failed its integrity check."),
     StorageError: (502, "File storage is unavailable. Please try again."),
-    ChainError: (503, "The blockchain node is unavailable. Please try again."),
+    ChainError: (503, "The blockchain network is unavailable. Please try again."),
     ModelUnavailableError: (503, "The analysis model is unavailable. Please try again later."),
+}
+
+# Contract custom errors that can reach a user, with a status and a plain-language message.
+_CONTRACT_ERRORS: dict[str, tuple[int, str]] = {
+    "AccessDenied": (403, "You do not have access to this record."),
+    "NotClinician": (403, "This clinician is not verified on the registry."),
+    "RecordNotFound": (404, "No on-chain record exists for this study."),
+    "RecordAlreadyExists": (409, "This study has already been published."),
+    "DuplicateReport": (409, "An identical report is already registered."),
+    "InvalidAddress": (422, "That account cannot be used here."),
 }
 
 
 def register_error_handlers(app: FastAPI) -> None:
-    for error_type, (status_code, public_message) in _ERROR_RESPONSES.items():
-        app.add_exception_handler(error_type, _handler(status_code, public_message))
+    for error_type, (status_code, message) in _ERROR_RESPONSES.items():
+        app.add_exception_handler(error_type, _handler(status_code, message))
+    app.add_exception_handler(ContractRejected, _contract_rejected)
     app.add_exception_handler(Exception, _unexpected)
 
 
-def _handler(status_code: int, public_message: str | None):
+def _handler(status_code: int, message: str):
     async def handle(request: Request, exc: Exception) -> JSONResponse:
-        if status_code >= 500:
-            logger.warning("%s on %s: %s", type(exc).__name__, _route(request), exc)
-        headers = {"WWW-Authenticate": "Bearer"} if status_code == 401 else None
-        return JSONResponse(
-            {"detail": public_message or str(exc)}, status_code=status_code, headers=headers
-        )
+        logger.warning("%s on %s: %s", type(exc).__name__, _route(request), exc)
+        return JSONResponse({"detail": message}, status_code=status_code)
 
     return handle
+
+
+async def _contract_rejected(request: Request, exc: Exception) -> JSONResponse:
+    name = exc.error_name if isinstance(exc, ContractRejected) else "unknown"
+    status_code, message = _CONTRACT_ERRORS.get(name, (502, "The registry rejected the request."))
+    logger.warning("Contract rejected %s on %s", name, _route(request))
+    return JSONResponse({"detail": message}, status_code=status_code)
 
 
 async def _unexpected(request: Request, exc: Exception) -> JSONResponse:

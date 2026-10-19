@@ -1,11 +1,13 @@
-"""FastAPI dependencies shared by the routers."""
+"""FastAPI dependencies: database sessions, the signed-in user, role guards, rate limits."""
 
+from collections.abc import AsyncIterator
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import RateLimiter
+from app.auth import SESSION_COOKIE, RateLimiter
+from app.models import Role, User
 from app.services import Services
 
 
@@ -15,23 +17,39 @@ def get_services(request: Request) -> Services:
 
 ServicesDep = Annotated[Services, Depends(get_services)]
 
-_bearer = HTTPBearer(auto_error=False)
+
+async def get_db(services: ServicesDep) -> AsyncIterator[AsyncSession]:
+    async with services.db() as session:
+        yield session
 
 
-def current_wallet(
-    services: ServicesDep,
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
-) -> str:
-    if credentials is None:
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED,
-            "Sign in with your wallet first.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return services.auth.authenticate(credentials.credentials)
+DbDep = Annotated[AsyncSession, Depends(get_db)]
 
 
-CurrentWallet = Annotated[str, Depends(current_wallet)]
+async def current_user(request: Request, services: ServicesDep, db: DbDep) -> User:
+    token = request.cookies.get(SESSION_COOKIE)
+    user = await services.sessions.resolve(db, token) if token else None
+    if user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Please sign in.")
+    return user
+
+
+CurrentUser = Annotated[User, Depends(current_user)]
+
+
+def _require(*roles: Role):
+    def guard(user: CurrentUser) -> User:
+        if user.role not in roles:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Your role cannot perform this action.")
+        return user
+
+    return guard
+
+
+PatientUser = Annotated[User, Depends(_require(Role.PATIENT))]
+ClinicianUser = Annotated[User, Depends(_require(Role.CLINICIAN))]
+AdminUser = Annotated[User, Depends(_require(Role.ADMIN))]
+CareUser = Annotated[User, Depends(_require(Role.PATIENT, Role.CLINICIAN))]
 
 
 def enforce_rate_limit(limiter: RateLimiter, key: str) -> None:

@@ -1,7 +1,7 @@
 [project]
 name = "medichain-backend"
-version = "0.2.0"
-description = "Medichain API: wallet-authenticated scan analysis, encrypted IPFS storage and on-chain access checks."
+version = "0.3.0"
+description = "Medichain API: role-based imaging studies, encrypted IPFS storage and an on-chain provenance and consent ledger."
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
@@ -15,8 +15,10 @@ dependencies = [
     "transformers>=4.50,<6",
     "reportlab>=4.2",
     "cryptography>=44",
-    "pyjwt>=2.10",
     "eth-account>=0.13",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "aiosqlite>=0.20",
+    "email-validator>=2.2",
 ]
 
 [project.optional-dependencies]

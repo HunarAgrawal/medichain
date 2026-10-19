@@ -2,10 +2,8 @@
 
 from fastapi import APIRouter
 
-from app.routes import analyses, auth, records, system
+from app.routes import admin, auth, people, studies, system, verify
 
 api_router = APIRouter(prefix="/api/v1")
-api_router.include_router(system.router)
-api_router.include_router(auth.router)
-api_router.include_router(analyses.router)
-api_router.include_router(records.router)
+for module in (system, auth, studies, people, admin, verify):
+    api_router.include_router(module.router)

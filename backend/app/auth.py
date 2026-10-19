@@ -1,146 +1,107 @@
-"""Wallet sign-in (EIP-4361 style): one-time challenges, signature checks and session tokens."""
+"""Passwords, sessions and rate limiting."""
 
+import hashlib
+import hmac
 import secrets
 import threading
 import time
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from urllib.parse import urlparse
+from functools import cache
 
-import jwt
-from eth_account import Account
-from eth_account.messages import encode_defunct
-from eth_utils import to_checksum_address
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-CHALLENGE_TTL = timedelta(minutes=5)
-MAX_PENDING_CHALLENGES = 10_000
-JWT_ISSUER = "medichain"
-JWT_ALGORITHM = "HS256"
+from app.models import SessionToken, User
 
+SESSION_COOKIE = "medichain_session"
+PASSWORD_MIN_LENGTH = 10
+PASSWORD_MAX_LENGTH = 128
 
-class AuthError(Exception):
-    """Sign-in failed or the session token is invalid."""
-
-
-class WalletNotAllowedError(AuthError):
-    """The wallet is valid but not on the allowlist."""
+# scrypt parameters (RFC 7914). N=2^15 costs about 32 MiB and ~50 ms per hash.
+SCRYPT_N = 2**15
+SCRYPT_R = 8
+SCRYPT_P = 1
+_SCRYPT_MAXMEM = 64 * 1024 * 1024
 
 
-@dataclass(frozen=True)
-class Challenge:
-    nonce: str
-    address: str
-    message: str
-    expires_at: datetime
+def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    digest = _scrypt(password, salt, SCRYPT_N, SCRYPT_R, SCRYPT_P)
+    return f"scrypt${SCRYPT_N}${SCRYPT_R}${SCRYPT_P}${salt.hex()}${digest.hex()}"
 
 
-@dataclass(frozen=True)
-class Session:
-    token: str
-    address: str
-    expires_at: datetime
+def verify_password(password: str, encoded: str) -> bool:
+    try:
+        scheme, n, r, p, salt, digest = encoded.split("$")
+        if scheme != "scrypt":
+            return False
+        candidate = _scrypt(password, bytes.fromhex(salt), int(n), int(r), int(p))
+    except ValueError:
+        return False
+    return hmac.compare_digest(candidate, bytes.fromhex(digest))
 
 
-class WalletAuth:
-    def __init__(
-        self,
-        *,
-        secret: str,
-        token_ttl: timedelta,
-        app_url: str,
-        chain_id: int,
-        allowed_wallets: list[str],
-    ) -> None:
-        self._secret = secret
-        self._token_ttl = token_ttl
-        self._app_url = app_url
-        self._domain = urlparse(app_url).netloc
-        self._chain_id = chain_id
-        self._allowed = frozenset(allowed_wallets)
-        self._pending: dict[str, Challenge] = {}
-        self._lock = threading.Lock()
+@cache
+def _dummy_hash() -> str:
+    return hash_password(secrets.token_urlsafe(16))
 
-    def create_challenge(self, address: str) -> Challenge:
-        address = to_checksum_address(address)
-        self._ensure_allowed(address)
+
+def verify_or_waste_time(password: str, user: User | None) -> bool:
+    """Verify a login. Unknown emails still pay the hashing cost, so timing reveals nothing."""
+    if user is None:
+        verify_password(password, _dummy_hash())
+        return False
+    return verify_password(password, user.password_hash)
+
+
+def _scrypt(password: str, salt: bytes, n: int, r: int, p: int) -> bytes:
+    return hashlib.scrypt(
+        password.encode(), salt=salt, n=n, r=r, p=p, dklen=32, maxmem=_SCRYPT_MAXMEM
+    )
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+class SessionManager:
+    """Opaque, server-side sessions: revocable at any time (logout, deactivation)."""
+
+    def __init__(self, ttl: timedelta) -> None:
+        self.ttl = ttl
+
+    async def create(self, db: AsyncSession, user: User) -> str:
+        token = secrets.token_urlsafe(32)
         now = datetime.now(UTC)
-        nonce = secrets.token_hex(16)
-        challenge = Challenge(
-            nonce=nonce,
-            address=address,
-            message=self._message(address, nonce, now, now + CHALLENGE_TTL),
-            expires_at=now + CHALLENGE_TTL,
+        db.add(
+            SessionToken(token_hash=_token_hash(token), user_id=user.id, expires_at=now + self.ttl)
         )
-        with self._lock:
-            self._prune(now)
-            if len(self._pending) >= MAX_PENDING_CHALLENGES:
-                raise AuthError("Too many pending sign-in requests. Try again shortly.")
-            self._pending[nonce] = challenge
-        return challenge
+        return token
 
-    def verify_signature(self, nonce: str, signature: str) -> Session:
-        with self._lock:
-            challenge = self._pending.pop(nonce, None)
-        if challenge is None or challenge.expires_at <= datetime.now(UTC):
-            raise AuthError("Sign-in request expired. Please try again.")
-        try:
-            signer = Account.recover_message(
-                encode_defunct(text=challenge.message), signature=signature
-            )
-        except Exception as exc:  # eth-account raises several unrelated types for bad input
-            raise AuthError("Invalid signature.") from exc
-        if signer != challenge.address:
-            raise AuthError("Signature does not match the requesting wallet.")
-        return self.issue_session(signer)
+    async def resolve(self, db: AsyncSession, token: str) -> User | None:
+        session = await db.get(SessionToken, _token_hash(token))
+        if session is None:
+            return None
+        if session.expires_at <= datetime.now(UTC) or not session.user.is_active:
+            await db.delete(session)
+            await db.commit()
+            return None
+        return session.user
 
-    def issue_session(self, address: str) -> Session:
-        now = datetime.now(UTC)
-        expires_at = now + self._token_ttl
-        claims = {"sub": address, "iss": JWT_ISSUER, "iat": now, "exp": expires_at}
-        token = jwt.encode(claims, self._secret, algorithm=JWT_ALGORITHM)
-        return Session(token=token, address=address, expires_at=expires_at)
+    async def revoke(self, db: AsyncSession, token: str) -> None:
+        await db.execute(delete(SessionToken).where(SessionToken.token_hash == _token_hash(token)))
 
-    def authenticate(self, token: str) -> str:
-        """Return the wallet address for a valid session token."""
-        try:
-            claims = jwt.decode(
-                token,
-                self._secret,
-                algorithms=[JWT_ALGORITHM],
-                issuer=JWT_ISSUER,
-                options={"require": ["sub", "iss", "iat", "exp"]},
-            )
-        except jwt.PyJWTError as exc:
-            raise AuthError("Your session has expired. Please sign in again.") from exc
-        address = to_checksum_address(claims["sub"])
-        self._ensure_allowed(address)
-        return address
+    async def revoke_all(self, db: AsyncSession, user_id: str) -> None:
+        await db.execute(delete(SessionToken).where(SessionToken.user_id == user_id))
 
-    def _ensure_allowed(self, address: str) -> None:
-        if self._allowed and address not in self._allowed:
-            raise WalletNotAllowedError("This wallet is not authorized to use Medichain.")
+    async def purge_expired(self, db: AsyncSession) -> None:
+        await db.execute(delete(SessionToken).where(SessionToken.expires_at <= datetime.now(UTC)))
 
-    def _prune(self, now: datetime) -> None:
-        expired = [nonce for nonce, c in self._pending.items() if c.expires_at <= now]
-        for nonce in expired:
-            del self._pending[nonce]
-
-    def _message(self, address: str, nonce: str, issued: datetime, expires: datetime) -> str:
-        return (
-            f"{self._domain} wants you to sign in with your Ethereum account:\n"
-            f"{address}\n\n"
-            "Sign in to Medichain. This does not send a transaction or cost gas.\n\n"
-            f"URI: {self._app_url}\n"
-            "Version: 1\n"
-            f"Chain ID: {self._chain_id}\n"
-            f"Nonce: {nonce}\n"
-            f"Issued At: {_iso(issued)}\n"
-            f"Expiration Time: {_iso(expires)}"
+    async def count(self, db: AsyncSession, user_id: str) -> int:
+        rows = await db.scalars(
+            select(SessionToken.token_hash).where(SessionToken.user_id == user_id)
         )
-
-
-def _iso(moment: datetime) -> str:
-    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+        return len(rows.all())
 
 
 class RateLimiter:
