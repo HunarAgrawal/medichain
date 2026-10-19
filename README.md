@@ -1,133 +1,158 @@
 # Medichain
 
-Verifiable, AI-assisted medical imaging records. Medichain classifies a brain MRI or chest X-ray,
-renders a PDF report, stores the scan and the report **encrypted** on IPFS, and anchors both on an
-EVM chain under the uploader's wallet. The record owner decides on-chain which other wallets may open
-it.
+A role-based platform for AI-assisted medical imaging reports. Clinicians analyse a scan with a
+vision model, review the result and sign the report. Patients own their records and decide which
+clinicians can open them. Every signed report is encrypted at rest, anchored on an EVM chain and
+verifiable by anyone who holds the PDF.
 
 > **Research prototype.** Not a medical device and not clinically validated. AI findings are
-> preliminary and must be reviewed by a qualified clinician. Use synthetic or consented data only.
+> decision support and must be reviewed by a qualified clinician. Use synthetic or consented data.
+
+## What each role can do
+
+| Role | In the app |
+| --- | --- |
+| **Clinician** | Run an AI analysis on a brain MRI or chest X-ray, review findings and the attention heatmap, write an impression and sign the report. Open records patients have shared. |
+| **Patient** | Read signed reports, open the PDF and scan, share records with clinicians or withdraw access (an on-chain consent), and see who opened each record. |
+| **Admin** | Create accounts (new clinicians are verified on-chain automatically), deactivate users (their access ends at once), monitor services and read the audit log. Admins never see clinical content. |
+| **Anyone** | Check that a report PDF is genuine and unaltered on the public `/verify` page. |
+
+## Try it
+
+Prerequisites: Python 3.12, Node.js 22 and Docker.
+
+```bash
+make setup      # Python venv, npm installs, backend/.env with freshly generated keys
+make ipfs       # local IPFS node (Docker)
+make chain      # terminal 1: local blockchain on :8545
+make deploy     # deploy the registry contract
+make seed       # demo accounts and sample studies
+make backend    # terminal 2: API on :8000
+make frontend   # terminal 3: app on http://localhost:3000
+```
+
+The login page lists the demo accounts; one click signs you in. They all use the password
+`medichain-demo`.
+
+| Account | Role | Starts with |
+| --- | --- | --- |
+| Dr. Ananya Rao | Clinician | One draft study awaiting review (Tomás Okafor) |
+| Priya Sharma | Patient | Two signed reports, already shared with Dr. Chen |
+| Dr. Daniel Chen | Clinician | Access to Priya's records only |
+| Tomás Okafor | Patient | Nothing signed yet |
+| Morgan Ellis | Admin | All accounts and the audit log |
+
+A five-minute walkthrough: sign in as **Dr. Rao**, review and sign Tomás's chest X-ray. Sign in as
+**Tomás** and open the report. Sign in as **Dr. Chen** and confirm you can open Priya's records but
+not Tomás's. Download a report as **Priya** and check it on `/verify`. Finish in the **admin**
+audit log, where every step appears. Sample scans for new studies are in [`samples/`](samples/).
+
+The local chain forgets everything when it restarts. After restarting `make chain`, run
+`make fresh` to redeploy, reset the local database and reseed.
 
 ## How it works
 
 ```text
-Browser (React + wallet)
-  1. Sign in: the wallet signs a one-time message, the API returns a 60-minute session token
-  2. Upload scan + patient details
-        │
-        ▼
-API (FastAPI)
-  • validates the image, runs the ViT classifier, computes an attention heatmap
-  • renders the PDF report (findings, heatmap, scan SHA-256, record QR code)
-  • encrypts scan and report with AES-256-GCM and pins both to IPFS
-  • returns predictions and the two CIDs
-        │
-        ▼
-Browser → wallet sends createRecord(patientId, scanCid, reportCid) to MediChainRecords
+Clinician                     Medichain API                            Chain / IPFS
+─────────                     ─────────────                            ────────────
+upload scan ───────────────▶  validate, run ViT, attention heatmap
+                              save draft (scan sealed with AES-GCM)
+review + sign ─────────────▶  render PDF (findings, review, QR)
+                              seal scan + PDF, pin to IPFS ─────────▶  IPFS (ciphertext only)
+                              publishRecord(recordId, patient,
+                                reportSHA256, CIDs) signed with  ────▶  MediChainRegistry
+                                the clinician's key
 
-Opening a record later:
-  GET /api/v1/records/{id}/report → the API asks the contract (eth_call from the signed-in wallet)
-  whether that wallet may read the record, fetches the blob from IPFS, decrypts and streams it.
+Patient opens a report ────▶  getRecord() from the patient's address
+                              (the contract decides), fetch CID,
+                              decrypt, check SHA-256 against chain ──▶  read-only calls
+Patient shares ────────────▶  grantAccess(clinician) signed with the
+                              patient's key ──────────────────────────▶  on-chain consent
+Anyone verifies a PDF ─────▶  SHA-256 → verifyReport() ──────────────▶  public lookup
 ```
 
 ## Security model
 
-| Concern         | How it is handled                                                                                                                                                                                                  |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Authentication  | Sign-In-with-Ethereum style challenge (single use, 5 min) exchanged for an HS256 JWT. Optional wallet allowlist (`ALLOWED_WALLETS`).                                                                               |
-| Authorization   | The contract is the single source of truth. Owners grant and revoke wallets on-chain. The API checks access with `eth_call` from the caller's address and never holds a private key.                              |
-| Confidentiality | Files are encrypted before they leave the server, so IPFS only ever sees ciphertext. Third-party API keys (Pinata) stay on the server.                                                                              |
-| Integrity       | AES-GCM authentication plus on-chain CIDs reject tampered or substituted blobs. Ciphertexts are bound to their patient ID and file kind, so they cannot be swapped between records. Reports embed the scan's SHA-256. |
-| Hardening       | Upload size, type and pixel limits; decompression-bomb guard; strict input validation; per-IP and per-wallet rate limits; CORS allowlist; security headers; no stack traces in responses; patient IDs never logged; safetensors-only model loading. |
-| Public data     | Patient IDs, owner addresses, CIDs and timestamps are on-chain and public. Use pseudonymous patient IDs.                                                                                                            |
+| Concern | How it is handled |
+| --- | --- |
+| Sign-in | Email and password hashed with scrypt; timing-safe checks; per-IP and per-account rate limits. Opaque server-side sessions in an `HttpOnly`, `SameSite=Strict` cookie, revocable at any time (logout, password change, deactivation). |
+| Request forgery | Same-origin API, strict CORS allowlist, and a required `X-Requested-With` header on every state-changing request. |
+| Authorization | Role guards on every endpoint. For published records the contract is the authority: the API calls `getRecord` *from the user's address*. Deactivating a clinician removes their registry status and with it all access. |
+| Keys | Each patient and clinician has a platform-held Ethereum key, sealed with `WALLET_ENCRYPTION_KEY` and bound to the account. On-chain actions are signed by the person who took them. An operator key owns the registry and funds gas. |
+| Confidentiality | Scans and reports are sealed with AES-256-GCM before they reach IPFS, bound to their study and file kind. The chain stores no names or IDs: patients are addresses and record IDs are random. Admins see metadata only. |
+| Integrity | The report's SHA-256 is anchored on-chain, checked on every download, and publicly verifiable. Ciphertexts cannot be swapped between records. |
+| Hardening | Upload type, size and pixel limits; decompression-bomb guard; strict validation; security headers; no stack traces in responses; logs record route templates, never IDs; models load only from `safetensors`; unsafe production settings refuse to start. |
+| Public on-chain | Addresses, record IDs, CIDs of ciphertext, report hashes and timestamps. |
 
 ## Models
 
-| Analysis                | Model                                                                                                         | Classes                                  | Reported val. accuracy |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | ---------------------- |
-| Brain tumor (MRI)       | [`Hemgg/brain-tumor-classification`](https://huggingface.co/Hemgg/brain-tumor-classification)                 | glioma, meningioma, pituitary, no tumor | 97.6%                  |
-| Pneumonia (chest X-ray) | [`lxyuan/vit-xray-pneumonia-classification`](https://huggingface.co/lxyuan/vit-xray-pneumonia-classification) | normal, pneumonia                        | 97.4%                  |
+| Analysis | Model | Classes | Reported val. accuracy |
+| --- | --- | --- | --- |
+| Brain tumor screening (MRI) | [`Hemgg/brain-tumor-classification`](https://huggingface.co/Hemgg/brain-tumor-classification) | glioma, meningioma, pituitary, no tumor | 97.6% |
+| Pneumonia screening (chest X-ray) | [`lxyuan/vit-xray-pneumonia-classification`](https://huggingface.co/lxyuan/vit-xray-pneumonia-classification) | normal, pneumonia | 97.4% |
 
-Both are ViT-B/16 fine-tunes (86M parameters, Apache-2.0): about 70 ms per image on CPU and 25 ms on
-Apple GPUs. Accuracies are the authors' validation figures, not independent clinical validation.
-Weights download once (about 700 MB in total) on first use. Swap models with `BRAIN_TUMOR_MODEL` /
-`CHEST_XRAY_MODEL`; CNN models get Grad-CAM heatmaps, ViT models get attention rollout.
+Both are ViT-B/16 fine-tunes (86M parameters, Apache-2.0), about 70 ms per image on CPU. The
+accuracies are the authors' validation figures, not clinical validation. Weights download once
+(about 700 MB). Swap models with `BRAIN_TUMOR_MODEL` / `CHEST_XRAY_MODEL`; ViT models get
+attention rollout heatmaps and CNNs get Grad-CAM.
 
 ## Repository layout
 
 ```text
-backend/     FastAPI service: auth, inference, reports, encryption, IPFS, chain reads (+ tests)
-contracts/   MediChainRecords.sol, Hardhat 3 tests and Ignition deployment
-frontend/    React 19 + TypeScript + Tailwind app (Vite, Vitest)
-Makefile     One entry point for setup, running, testing and linting
+backend/     FastAPI service: accounts, studies, sharing, admin, verification (+ tests)
+frontend/    React 19 + TypeScript + Tailwind app with patient, clinician and admin areas
+contracts/   MediChainRegistry.sol, Hardhat 3 tests, deployment and the exported ABI
+samples/     Openly licensed sample scans (see samples/README.md)
+Makefile     One entry point for setup, running, testing and linting (`make help`)
 ```
-
-## Quick start
-
-Prerequisites: Python 3.12, Node.js 22, Docker, and the MetaMask browser extension.
-
-```bash
-make setup      # Python venv, npm installs, .env files with freshly generated secrets
-make ipfs       # local IPFS node (Docker)
-make chain      # terminal 1: local chain on :8545
-make deploy     # deploy the contract (its address matches the backend/.env default)
-make backend    # terminal 2: API on :8000
-make frontend   # terminal 3: app on http://localhost:5173
-```
-
-In MetaMask, import Hardhat's first test account (private key
-`0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`; it is public, never use it on a
-real network). The app offers to add the "Hardhat local" network for you. After restarting
-`make chain`, run `make deploy` again and clear MetaMask's activity data for that account
-(Settings → Advanced), because the local chain starts again from block zero.
-
-Run `make help` to list every command.
 
 ## API
 
-| Method | Path                                          | Auth                     | Purpose                                            |
-| ------ | --------------------------------------------- | ------------------------ | -------------------------------------------------- |
-| GET    | `/api/v1/health`                              | none                     | Liveness                                           |
-| GET    | `/api/v1/meta`                                | none                     | Chain ID, contract address, analyses, upload limit |
-| POST   | `/api/v1/auth/challenge`                      | none                     | One-time sign-in message                           |
-| POST   | `/api/v1/auth/session`                        | none                     | Signed message → session token                     |
-| POST   | `/api/v1/analyses`                            | Bearer                   | Analyze, render report, encrypt, pin               |
-| GET    | `/api/v1/records/{patient_id}/{scan\|report}` | Bearer + on-chain access | Decrypt and return a stored file                   |
+All routes are under `/api/v1`. Interactive docs are at `/docs` when `ENABLE_DOCS=true`.
 
-Interactive docs are served at `/docs` when `ENABLE_DOCS=true`.
+| Area | Endpoints |
+| --- | --- |
+| Public | `GET /health`, `GET /meta`, `POST /verify` |
+| Session | `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/password` |
+| Studies | `POST /studies`, `GET /studies`, `GET /studies/{id}`, `POST /studies/{id}/publish`, `DELETE /studies/{id}`, `GET /studies/{id}/files/{scan\|report\|heatmap}`, `GET /studies/{id}/activity` |
+| People | `GET/POST /sharing`, `DELETE /sharing/{clinician_id}`, `GET /directory/clinicians`, `GET /directory/patients`, `GET /patients`, `GET /activity` |
+| Admin | `GET /admin/overview`, `GET/POST /admin/users`, `PATCH /admin/users/{id}`, `GET /admin/audit` |
 
 ## Configuration
 
-The backend reads `backend/.env`; every setting is documented in
-[`backend/.env.example`](backend/.env.example). The frontend only needs `VITE_API_URL` and reads the
-chain and contract from `GET /api/v1/meta`.
+Every backend setting is documented in [`backend/.env.example`](backend/.env.example); `make env`
+creates `backend/.env` with new keys. The frontend needs no configuration: it calls `/api` on its
+own origin, and Vite proxies that to the API in development.
 
 ## Deploying beyond localhost
 
-- **Contract:** store credentials with `npx hardhat keystore set SEPOLIA_RPC_URL` and
-  `npx hardhat keystore set SEPOLIA_PRIVATE_KEY` in `contracts/`, then run `npm run deploy:sepolia`.
-- **Backend:** set `ENVIRONMENT=production`, `ENABLE_DOCS=false`, real `CORS_ORIGINS` and
-  `PUBLIC_APP_URL`, the chain settings (`CHAIN_ID=11155111`, `CHAIN_RPC_URL`, `CONTRACT_ADDRESS`)
-  and `IPFS_PROVIDER=pinata` with `PINATA_JWT`. Run one worker behind an HTTPS reverse proxy with
-  `uvicorn app.main:create_app --factory --proxy-headers --no-access-log` (the app logs route templates itself, so patient IDs never reach the logs).
-- **Frontend:** run `npm run build` with `VITE_API_URL` set, then serve `frontend/dist` as static
-  files.
+- **Contract:** in `contracts/`, store credentials with `npx hardhat keystore set SEPOLIA_RPC_URL`
+  and `npx hardhat keystore set SEPOLIA_PRIVATE_KEY`, then run `npm run deploy:sepolia`.
+- **Backend:** set `ENVIRONMENT=production`, `DEMO_MODE=false`, `COOKIE_SECURE=true`,
+  `ENABLE_DOCS=false`, a real `PUBLIC_APP_URL`, a PostgreSQL `DATABASE_URL`
+  (`postgresql+asyncpg://…`, with `asyncpg` installed), the chain settings and a funded
+  `OPERATOR_PRIVATE_KEY` that owns the contract, `IPFS_PROVIDER=pinata` with `PINATA_JWT`, and
+  `EXPLORER_URL`. Run `uvicorn app.main:create_app --factory --proxy-headers --no-access-log`.
+- **Frontend:** `npm run build`, then serve `frontend/dist` and the API from one origin through a
+  reverse proxy, routing `/api` to the backend.
 
 ## Limitations
 
-- The models are community fine-tunes, not clinically validated.
-- One server-held encryption key; there is no key rotation or per-user key yet.
-- Sign-in challenges and rate limits live in memory, so the API runs as a single instance.
-- PNG and JPEG only; DICOM is not supported.
-- Files stay pinned if the on-chain transaction is abandoned.
+- The models are community fine-tunes, not clinically validated. PNG and JPEG only (no DICOM).
+- Keys are custodial and live in the database, sealed with an environment key. Production should
+  use a KMS or HSM, and could let users bring their own wallet.
+- Sharing covers all of a patient's records; per-record sharing is not implemented.
+- The schema is created on startup; there are no migrations yet.
+- There is no password reset, email verification or multi-factor sign-in yet.
 
 ## Research
 
-An early, high-level write-up of this work: H. S. Agrawal, V. Bhatnagar, A. Kumar, K. Singla,
-"Trusted Medical Imaging: A Blockchain Enabled Deep Learning Framework for Secure Healthcare,"
-ACET 2025, [doi:10.1109/ACET67282.2025.11430313](https://doi.org/10.1109/ACET67282.2025.11430313).
-This repository is the reference implementation and supersedes the paper's details.
+An early, high-level write-up: H. S. Agrawal, V. Bhatnagar, A. Kumar, K. Singla, "Trusted Medical
+Imaging: A Blockchain Enabled Deep Learning Framework for Secure Healthcare," ACET 2025,
+[doi:10.1109/ACET67282.2025.11430313](https://doi.org/10.1109/ACET67282.2025.11430313). This
+repository is the reference implementation and supersedes the paper's details.
 
 ## License
 
-No license has been selected yet. All rights are reserved until one is added.
+No license has been selected yet. All rights are reserved until one is added. Sample images are
+CC BY 4.0; see [`samples/README.md`](samples/README.md).

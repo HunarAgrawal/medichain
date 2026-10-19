@@ -3,7 +3,7 @@
 ## Setup
 
 Follow the quick start in the [README](README.md). `make setup` installs everything and creates
-`.env` files with fresh secrets.
+`backend/.env` with fresh keys; `make seed` adds the demo accounts.
 
 ## Workflow
 
@@ -21,17 +21,20 @@ make format  # auto-fix formatting
 
 ## Conventions
 
-- **Backend:** routes stay thin. Business logic lives in plain modules (`pipeline`, `crypto`,
-  `storage`, `chain`, `ml/`). Domain errors are mapped to HTTP responses in `app/errors.py`. Every
-  new behavior gets a test; tests use the fakes in `tests/conftest.py` and never download models or
-  touch the network.
-- **Frontend:** feature code lives in `src/features/<feature>/`, shared primitives in
-  `src/components/ui`. API types mirror the backend's snake_case fields.
-- **Contract:** if you change the external interface, update the ABI in `frontend/src/lib/chain.ts`
-  and the selectors in `backend/app/chain.py`. `backend/tests/test_chain.py` pins the selectors.
+- **Backend:** routes stay thin. Business rules (who can see or change what) live in
+  `app/workflows.py`; infrastructure lives in plain modules (`chain`, `storage`, `crypto`,
+  `wallets`, `ml/`, `report`). Domain errors become HTTP responses in `app/errors.py`. Every new
+  behavior gets a test; tests use the fakes in `tests/conftest.py` (including an in-memory model
+  of the contract) and never download models or touch the network.
+- **Frontend:** pages live in `src/pages/<role>/`, shared building blocks in `src/components`,
+  primitives in `src/components/ui`. Server state goes through TanStack Query. API types in
+  `src/lib/api.ts` mirror the backend's snake_case fields.
+- **Contract:** after changing `MediChainRegistry.sol`, run `npm run export-abi` in `contracts/`
+  and update the signatures in `backend/app/chain.py`. Backend tests check them against
+  `contracts/abi/`, and CI fails if the committed ABI is stale.
 
 ## Security rules
 
-- Never commit `.env` files, keys, JWTs, wallet secrets, patient data or generated reports.
-- Use testnet wallets and synthetic patient data.
+- Never commit `.env` files, databases, keys, patient data or generated reports.
+- Use testnets and synthetic data.
 - If a secret leaks, rotate it immediately (see [SECURITY.md](SECURITY.md)).
