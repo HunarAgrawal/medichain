@@ -10,8 +10,9 @@
     "compile": "hardhat build",
     "test": "hardhat test",
     "node": "hardhat node",
-    "deploy:local": "hardhat ignition deploy ignition/modules/MediChainRecords.ts --network localhost",
-    "deploy:sepolia": "hardhat ignition deploy ignition/modules/MediChainRecords.ts --network sepolia",
+    "deploy:local": "hardhat ignition deploy ignition/modules/MediChainRegistry.ts --network localhost",
+    "deploy:sepolia": "hardhat ignition deploy ignition/modules/MediChainRegistry.ts --network sepolia",
+    "export-abi": "hardhat run scripts/export-abi.ts",
     "clean": "hardhat clean"
   },
   "dependencies": {
