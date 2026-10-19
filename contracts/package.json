@@ -1,6 +1,7 @@
 {
   "name": "medichain-contracts",
   "private": true,
+  "license": "AGPL-3.0-only",
   "description": "Medichain on-chain record registry",
   "type": "module",
   "engines": {

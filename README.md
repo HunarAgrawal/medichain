@@ -154,5 +154,11 @@ repository is the reference implementation and supersedes the paper's details.
 
 ## License
 
-No license has been selected yet. All rights are reserved until one is added. Sample images are
-CC BY 4.0; see [`samples/README.md`](samples/README.md).
+Medichain is free software under the [GNU Affero General Public License v3.0](LICENSE)
+(`AGPL-3.0-only`). You may use, study, modify and share it. If you distribute a modified version,
+**or run one as a network service**, you must make its complete source code available to its
+users under the same license. The app's footer links to the source for that reason.
+
+Third-party material keeps its own license: the sample scans in `samples/` are CC BY 4.0 (see
+[`samples/README.md`](samples/README.md)), and the AI models, downloaded at runtime and not
+redistributed here, are Apache-2.0.

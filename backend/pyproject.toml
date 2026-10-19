@@ -3,6 +3,7 @@ name = "medichain-backend"
 version = "0.3.0"
 description = "Medichain API: role-based imaging studies, encrypted IPFS storage and an on-chain provenance and consent ledger."
 requires-python = ">=3.12"
+license = "AGPL-3.0-only"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
@@ -29,7 +30,7 @@ dev = [
 ]
 
 [build-system]
-requires = ["setuptools>=75"]
+requires = ["setuptools>=77"]  # SPDX license expressions (PEP 639)
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]

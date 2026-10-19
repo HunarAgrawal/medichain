@@ -33,6 +33,11 @@ make format  # auto-fix formatting
   and update the signatures in `backend/app/chain.py`. Backend tests check them against
   `contracts/abi/`, and CI fails if the committed ABI is stale.
 
+## License of contributions
+
+By submitting a contribution, you agree that it is licensed under the project's license,
+[AGPL-3.0-only](LICENSE).
+
 ## Security rules
 
 - Never commit `.env` files, databases, keys, patient data or generated reports.

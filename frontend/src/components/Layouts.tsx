@@ -26,6 +26,9 @@ const NAV: Record<Role, { to: string; label: string; end?: boolean }[]> = {
   ],
 };
 
+// Point this at your fork if you deploy a modified version (AGPL-3.0 §13).
+const SOURCE_URL = "https://github.com/HunarAgrawal/MEDICHAIN";
+
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   cx(
     "rounded-md px-3 py-1.5 text-sm whitespace-nowrap transition-colors",
@@ -57,9 +60,20 @@ function Footer() {
     <footer className="border-line border-t">
       <div className="text-muted mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-6 text-xs sm:px-6">
         <p>Research prototype. AI findings support clinicians; they are not a diagnosis.</p>
-        <Link to="/verify" className="hover:text-ink-strong underline-offset-4 hover:underline">
-          Verify a report
-        </Link>
+        <nav aria-label="Footer" className="flex items-center gap-5">
+          <Link to="/verify" className="hover:text-ink-strong underline-offset-4 hover:underline">
+            Verify a report
+          </Link>
+          {/* AGPL-3.0 §13: users of a network service must be offered its source code. */}
+          <a
+            href={SOURCE_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="hover:text-ink-strong underline-offset-4 hover:underline"
+          >
+            Source code (AGPL-3.0)
+          </a>
+        </nav>
       </div>
     </footer>
   );
