@@ -1,127 +1,176 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { RouterProvider, createMemoryRouter } from "react-router";
+import { describe, expect, it, vi } from "vitest";
 
-import App from "./App";
-import type { Meta } from "./lib/api";
-import type { WalletProvider } from "./lib/chain";
-
-const ADDRESS = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+import type { Meta, StudySummary, User } from "./lib/api";
+import { routes } from "./router";
 
 const META: Meta = {
-  chain_id: 31337,
-  contract_address: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-  max_upload_mb: 10,
   analysis_types: [
-    { id: "brain_tumor", name: "Brain tumor", modality: "MRI", description: "Four classes." },
-    { id: "chest_xray", name: "Pneumonia", modality: "Chest X-ray", description: "Two classes." },
+    {
+      id: "brain_tumor",
+      name: "Brain tumor",
+      modality: "MRI",
+      description: "Four classes.",
+      labels: ["Glioma"],
+    },
+  ],
+  max_upload_mb: 10,
+  chain: {
+    chain_id: 31337,
+    contract_address: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+    explorer_url: null,
+  },
+  demo_accounts: [
+    {
+      role: "patient",
+      name: "Priya Sharma",
+      email: "priya.sharma@medichain.example",
+      password: "medichain-demo",
+      description: "Owns her records.",
+    },
+    {
+      role: "clinician",
+      name: "Dr. Ananya Rao",
+      email: "ananya.rao@medichain.example",
+      password: "medichain-demo",
+      description: "Signs reports.",
+    },
   ],
 };
 
-// Sign-in crosses several async hops (wallet, API, ethers); allow for slow CI machines.
-const SIGN_IN = { timeout: 5000 };
+const user = (role: User["role"], name: string): User => ({
+  id: `${role}-1`,
+  name,
+  role,
+  title: null,
+  reference: "MC-1234ABCD",
+  email: `${role}@medichain.example`,
+  date_of_birth: role === "patient" ? "1979-03-14" : null,
+  wallet_address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+  is_active: true,
+  created_at: "2026-10-01T00:00:00Z",
+  last_login_at: null,
+});
+
+const STUDY: StudySummary = {
+  id: "study-1",
+  status: "published",
+  analysis_type: "brain_tumor",
+  analysis_name: "Brain tumor screening",
+  modality: "MRI",
+  patient: user("patient", "Priya Sharma"),
+  clinician: user("clinician", "Dr. Ananya Rao"),
+  top_finding: "Glioma",
+  created_at: "2026-10-18T09:00:00Z",
+  published_at: "2026-10-18T09:05:00Z",
+};
+
+// Role pages are lazy-loaded; the first dynamic import can be slow in jsdom.
+const SLOW = { timeout: 5000 };
 
 const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  Promise.resolve(
+    new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }),
+  );
 
-function mockApi() {
-  const expires = new Date(Date.now() + 3_600_000).toISOString();
-  const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>((url) => {
-    if (url.endsWith("/meta")) return Promise.resolve(json(META));
-    if (url.endsWith("/auth/challenge")) {
-      return Promise.resolve(
-        json({ nonce: "a".repeat(32), message: "Sign in", expires_at: expires }),
-      );
+/** A tiny fake API: `signedIn` starts as the session user (or null) and login switches it. */
+function mockApi(signedIn: User | null) {
+  let current = signedIn;
+  const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+    const path = url.replace("/api/v1", "");
+    if (path === "/meta") return json(META);
+    if (path === "/auth/me")
+      return current ? json(current) : json({ detail: "Please sign in." }, 401);
+    if (path === "/auth/login") {
+      const { email } = JSON.parse(init?.body as string) as { email: string };
+      current = email.startsWith("ananya")
+        ? user("clinician", "Dr. Ananya Rao")
+        : user("patient", "Priya Sharma");
+      return json(current);
     }
-    if (url.endsWith("/auth/session")) {
-      return Promise.resolve(
-        json({ token: "session-token", address: ADDRESS, expires_at: expires }),
-      );
+    if (path.startsWith("/studies")) return json([STUDY]);
+    if (path === "/sharing") return json([]);
+    if (path === "/patients") return json([]);
+    if (path === "/verify") {
+      return json({
+        authentic: true,
+        report_sha256: "ab".repeat(32),
+        record_id: "0x" + "11".repeat(32),
+        published_at: "2026-10-18T09:05:00Z",
+        issuer: { name: "Dr. Ananya Rao", title: "Consultant radiologist" },
+        analysis_name: "Brain tumor screening",
+        matches_expected_record: null,
+      });
     }
-    return Promise.resolve(json({ detail: "Not found" }, 404));
+    return json({ detail: "Not found" }, 404);
   });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
 
-function installWallet() {
-  let accounts: string[] = [];
-  const request = vi.fn(({ method }: { method: string }) => {
-    switch (method) {
-      case "eth_accounts":
-        return Promise.resolve(accounts);
-      case "eth_requestAccounts":
-        accounts = [ADDRESS];
-        return Promise.resolve(accounts);
-      case "eth_chainId":
-        return Promise.resolve("0x7a69");
-      case "personal_sign":
-        return Promise.resolve(`0x${"11".repeat(65)}`);
-      default:
-        return Promise.reject(new Error(`Unexpected wallet call: ${method}`));
-    }
-  });
-  const wallet: WalletProvider = { request, on: vi.fn(), removeListener: vi.fn() };
-  window.ethereum = wallet;
-  return { request };
+function renderAt(path: string) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const router = createMemoryRouter(routes, { initialEntries: [path] });
+  render(
+    <QueryClientProvider client={client}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
+  return router;
 }
 
-afterEach(() => {
-  delete window.ethereum;
-});
-
 describe("App", () => {
-  it("offers a retry when the API is unreachable", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
-    render(<App />);
+  it("sends signed-out visitors to login, which offers demo accounts", async () => {
+    mockApi(null);
+    const router = renderAt("/records");
 
-    expect(await screen.findByText("The Medichain API is not responding")).toBeInTheDocument();
-
-    mockApi();
-    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByRole("link", { name: /Install MetaMask/ })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/login");
+    expect(router.state.location.search).toBe("?next=%2Frecords");
+    expect(await screen.findByText("Priya Sharma")).toBeInTheDocument();
   });
 
-  it("asks for a browser wallet when none is installed", async () => {
-    mockApi();
-    render(<App />);
+  it("signs in with a demo account and lands on the role's home", async () => {
+    const fetchMock = mockApi(null);
+    renderAt("/login");
 
-    expect(await screen.findByRole("link", { name: /Install MetaMask/ })).toHaveAttribute(
-      "href",
-      "https://metamask.io/download/",
-    );
+    await screen.findByText("Priya Sharma"); // demo accounts arrive with /meta
+    const [, patientDemo] = screen.getAllByRole("button", { name: "Sign in" });
+    await userEvent.click(patientDemo!);
+
+    expect(await screen.findByRole("heading", { name: "Your records" }, SLOW)).toBeInTheDocument();
+    expect(await screen.findByText("Glioma")).toBeInTheDocument();
+    const login = fetchMock.mock.calls.find(([url]) => url.endsWith("/auth/login"));
+    expect(JSON.parse(login?.[1]?.body as string)).toEqual({
+      email: "priya.sharma@medichain.example",
+      password: "medichain-demo",
+    });
   });
 
-  it("signs in with the wallet and opens the analysis form", async () => {
-    const fetchMock = mockApi();
-    const { request } = installWallet();
-    render(<App />);
-
-    await userEvent.click(await screen.findByRole("button", { name: "Sign in with wallet" }));
+  it("keeps each role on its own pages", async () => {
+    mockApi(user("clinician", "Dr. Ananya Rao"));
+    const router = renderAt("/records");
 
     expect(
-      await screen.findByRole("heading", { name: "New analysis" }, SIGN_IN),
+      await screen.findByRole("heading", { name: /Good to see you/ }, SLOW),
     ).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /Brain tumor/ })).toBeChecked();
-    expect(screen.getByRole("button", { name: "Analyze scan" })).toBeEnabled();
-    expect(request).toHaveBeenCalledWith(expect.objectContaining({ method: "personal_sign" }));
-    const sessionCall = fetchMock.mock.calls.find(([url]) => url.endsWith("/auth/session"));
-    expect(JSON.parse(sessionCall?.[1]?.body as string)).toMatchObject({ nonce: "a".repeat(32) });
-    expect(sessionStorage.getItem("medichain.session")).toContain("session-token");
+    expect(router.state.location.pathname).toBe("/worklist");
   });
 
-  it("shows field errors instead of submitting an incomplete form", async () => {
-    const fetchMock = mockApi();
-    installWallet();
-    render(<App />);
-    await userEvent.click(await screen.findByRole("button", { name: "Sign in with wallet" }));
-    await screen.findByRole("heading", { name: "New analysis" }, SIGN_IN);
+  it("verifies a report without signing in", async () => {
+    mockApi(null);
+    renderAt("/verify");
 
-    await userEvent.type(screen.getByLabelText("Patient ID"), "bad id");
-    await userEvent.click(screen.getByRole("button", { name: "Analyze scan" }));
+    const input = await screen.findByLabelText(/Drop the report PDF/);
+    await userEvent.upload(
+      input,
+      new File(["%PDF-1.7"], "report.pdf", { type: "application/pdf" }),
+    );
 
-    expect(screen.getByText("Use 1–64 letters, numbers, hyphens or underscores.")).toBeVisible();
-    expect(screen.getByText("Choose a scan to analyze.")).toBeVisible();
-    expect(fetchMock.mock.calls.some(([url]) => url.endsWith("/analyses"))).toBe(false);
+    expect(await screen.findByRole("heading", { name: "Authentic report" })).toBeInTheDocument();
+    expect(screen.getByText("Dr. Ananya Rao, Consultant radiologist")).toBeInTheDocument();
   });
 });

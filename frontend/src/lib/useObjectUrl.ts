@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /** An object URL for a Blob/File that is revoked when replaced or on unmount. */
-export function useBlobUrl(): [string | null, (blob: Blob | null) => void] {
+export function useObjectUrl(): [string | null, (blob: Blob | null) => void] {
   const current = useRef<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
 

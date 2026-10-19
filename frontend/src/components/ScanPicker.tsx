@@ -1,9 +1,9 @@
 import { UploadSimpleIcon } from "@phosphor-icons/react";
 import { useRef, useState, type DragEvent } from "react";
 
-import { Button } from "../../components/ui";
-import { formatBytes } from "../../lib/format";
-import { ACCEPTED_SCAN_TYPES } from "./validation";
+import { Button } from "./ui";
+import { ACCEPTED_SCAN_TYPES } from "../lib/files";
+import { formatBytes } from "../lib/format";
 
 interface ScanPickerProps {
   file: File | null;
