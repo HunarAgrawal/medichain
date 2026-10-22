@@ -60,6 +60,7 @@ def test_logout_revokes_the_session(env: Env) -> None:
     cookie = env.client.cookies.get("medichain_session")
     assert env.client.post("/api/v1/auth/logout").status_code == 204
 
+    env.client.cookies.clear()  # replay only the old cookie
     env.client.cookies.set("medichain_session", cookie, path="/api")
     assert env.client.get(ME).status_code == 401
 
@@ -93,6 +94,7 @@ def test_password_change_signs_out_other_sessions(env: Env) -> None:
     assert changed.status_code == 200
     assert env.client.get(ME).status_code == 200  # the new session cookie works
 
+    env.client.cookies.clear()  # replay only the old cookie
     env.client.cookies.set("medichain_session", old_cookie, path="/api")
     assert env.client.get(ME).status_code == 401
     assert (
