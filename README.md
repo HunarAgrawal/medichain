@@ -1,9 +1,27 @@
+<div align="center">
+
+<img src="frontend/public/favicon.svg" width="52" height="52" alt="Medichain logo" />
+
 # Medichain
 
-A role-based platform for AI-assisted medical imaging reports. Clinicians analyse a scan with a
-vision model, review the result and sign the report. Patients own their records and decide which
-clinicians can open them. Every signed report is encrypted at rest, anchored on an EVM chain and
-verifiable by anyone who holds the PDF.
+**AI-assisted medical imaging reports that patients own and anyone can verify.**
+
+[![CI](https://github.com/HunarAgrawal/medichain/actions/workflows/ci.yml/badge.svg)](https://github.com/HunarAgrawal/medichain/actions/workflows/ci.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)](backend/pyproject.toml)
+[![Node 22](https://img.shields.io/badge/node-22-339933?logo=nodedotjs&logoColor=white)](frontend/package.json)
+[![Paper: IEEE ACET 2025](https://img.shields.io/badge/paper-IEEE%20ACET%202025-00629B)](https://doi.org/10.1109/ACET67282.2025.11430313)
+
+[Try it](#try-it) · [How it works](#how-it-works) · [Security model](#security-model) · [Citation](#citation)
+
+<img src="docs/images/patient-record.webp" width="100%" alt="A patient's signed brain MRI report in Medichain: the clinician's finding, the scan beside the model's attention heatmap, and the on-chain verification details" />
+
+</div>
+
+Medichain is a role-based platform for AI-assisted medical imaging reports:
+- Clinicians analyse a scan with a vision model, review the result and sign the report.
+- Patients own their records and decide which clinicians can open them.
+- Every signed report is encrypted at rest, anchored on an EVM chain and verifiable by anyone who holds the PDF.
 
 > **Research prototype.** Not a medical device and not clinically validated. AI findings are
 > decision support and must be reviewed by a qualified clinician. Use synthetic or consented data.
@@ -16,6 +34,29 @@ verifiable by anyone who holds the PDF.
 | **Patient** | Read signed reports, open the PDF and scan, share records with clinicians or withdraw access (an on-chain consent), and see who opened each record. |
 | **Admin** | Create accounts (new clinicians are verified on-chain automatically), deactivate users (their access ends at once), monitor services and read the audit log. Admins never see clinical content. |
 | **Anyone** | Check that a report PDF is genuine and unaltered on the public `/verify` page. |
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/clinician-review.webp" alt="Clinician review screen: chest X-ray, attention heatmap, AI findings and the sign-off form" />
+      <br /><sub><b>Clinician review.</b> AI findings and heatmap beside the sign-off form.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/login.webp" alt="Sign-in page listing one-click demo accounts for each role" />
+      <br /><sub><b>Sign in.</b> One-click demo accounts for every role.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/verify.webp" alt="Public verification page confirming that a report PDF is authentic" />
+      <br /><sub><b>Public verification.</b> Anyone can check a report PDF against the chain.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/admin-overview.webp" alt="Admin overview with account counts and service health" />
+      <br /><sub><b>Admin overview.</b> Accounts, studies and service health, with no clinical data.</sub>
+    </td>
+  </tr>
+</table>
 
 ## Try it
 
@@ -145,12 +186,28 @@ own origin, and Vite proxies that to the API in development.
 - The schema is created on startup; there are no migrations yet.
 - There is no password reset, email verification or multi-factor sign-in yet.
 
-## Research
+## Contributing
 
-An early, high-level write-up: H. S. Agrawal, V. Bhatnagar, A. Kumar, K. Singla, "Trusted Medical
-Imaging: A Blockchain Enabled Deep Learning Framework for Secure Healthcare," ACET 2025,
-[doi:10.1109/ACET67282.2025.11430313](https://doi.org/10.1109/ACET67282.2025.11430313). This
-repository is the reference implementation and supersedes the paper's details.
+Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[code of conduct](CODE_OF_CONDUCT.md). Report vulnerabilities privately as described in
+[SECURITY.md](SECURITY.md). Release notes are in [CHANGELOG.md](CHANGELOG.md).
+
+## Citation
+
+The design is described in an early, high-level paper. This repository is the reference
+implementation and supersedes its details. Use GitHub's **Cite this repository** button, or:
+
+```bibtex
+@inproceedings{agrawal2025trusted,
+  title     = {Trusted Medical Imaging: A Blockchain Enabled Deep Learning Framework for Secure Healthcare},
+  author    = {Agrawal, Hunar Sajjan and Bhatnagar, Vaibhav and Kumar, Ashish and Singla, Kanika},
+  booktitle = {2025 2nd International Conference on Advanced Computing and Emerging Technologies (ACET)},
+  pages     = {1--6},
+  year      = {2025},
+  publisher = {IEEE},
+  doi       = {10.1109/ACET67282.2025.11430313}
+}
+```
 
 ## License
 

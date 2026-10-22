@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Report security issues privately through a
-[GitHub security advisory](https://github.com/HunarAgrawal/MEDICHAIN/security/advisories/new).
+[GitHub security advisory](https://github.com/HunarAgrawal/medichain/security/advisories/new).
 Do not open a public issue.
 
 ## Security model

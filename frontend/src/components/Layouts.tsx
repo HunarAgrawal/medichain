@@ -27,7 +27,7 @@ const NAV: Record<Role, { to: string; label: string; end?: boolean }[]> = {
 };
 
 // Point this at your fork if you deploy a modified version (AGPL-3.0 §13).
-const SOURCE_URL = "https://github.com/HunarAgrawal/MEDICHAIN";
+const SOURCE_URL = "https://github.com/HunarAgrawal/medichain";
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   cx(

@@ -1,5 +1,7 @@
 # Contributing
 
+This project follows a [code of conduct](CODE_OF_CONDUCT.md). Please read it before taking part.
+
 ## Setup
 
 Follow the quick start in the [README](README.md). `make setup` installs everything and creates
@@ -7,11 +9,12 @@ Follow the quick start in the [README](README.md). `make setup` installs everyth
 
 ## Workflow
 
-1. Branch from `main` with a prefix: `feature/`, `fix/`, `docs/`, `refactor/`, `test/` or `chore/`.
-2. Keep each pull request focused on one change.
-3. Write commit messages in the [Conventional Commits](https://www.conventionalcommits.org) style,
+1. For anything larger than a small fix, open an issue first (bug report or feature request form) so the approach can be agreed.
+2. Branch from `main` with a prefix: `feature/`, `fix/`, `docs/`, `refactor/`, `test/` or `chore/`.
+3. Keep each pull request focused on one change.
+4. Write commit messages in the [Conventional Commits](https://www.conventionalcommits.org) style,
    for example `feat(backend): add DICOM upload support` or `fix(frontend): keep form on API error`.
-4. Run the checks below, then open a pull request. CI runs the same checks.
+5. Run the checks below, then open a pull request. CI runs the same checks, and user-visible changes get a line in [CHANGELOG.md](CHANGELOG.md) under *Unreleased*.
 
 ```bash
 make lint    # ruff, eslint, tsc, prettier
