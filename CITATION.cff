@@ -1,0 +1,52 @@
+cff-version: 1.2.0
+message: "If you use Medichain in your research, please cite the paper below."
+title: "Medichain"
+abstract: >-
+  A role-based platform for AI-assisted medical imaging reports. Clinicians review and sign
+  AI findings, patients own and share their records, and every report is encrypted on IPFS and
+  verifiable on an EVM blockchain.
+type: software
+authors:
+  - given-names: Hunar Sajjan
+    family-names: Agrawal
+    affiliation: "School of Computer Science, Sharda University"
+repository-code: "https://github.com/HunarAgrawal/medichain"
+license: AGPL-3.0-only
+version: 0.3.0
+date-released: "2026-10-23"
+keywords:
+  - medical imaging
+  - explainable AI
+  - vision transformer
+  - blockchain
+  - IPFS
+  - healthcare
+preferred-citation:
+  type: conference-paper
+  title: "Trusted Medical Imaging: A Blockchain Enabled Deep Learning Framework for Secure Healthcare"
+  authors:
+    - given-names: Hunar Sajjan
+      family-names: Agrawal
+      affiliation: "School of Computer Science, Sharda University"
+    - given-names: Vaibhav
+      family-names: Bhatnagar
+      affiliation: "School of Computer Science, Sharda University"
+    - given-names: Ashish
+      family-names: Kumar
+      affiliation: "School of Computer Science, Sharda University"
+    - given-names: Kanika
+      family-names: Singla
+      affiliation: "School of Computer Science, Sharda University"
+  collection-title: "2025 2nd International Conference on Advanced Computing and Emerging Technologies (ACET)"
+  conference:
+    name: "2nd International Conference on Advanced Computing and Emerging Technologies (ACET)"
+    city: Ghaziabad
+    country: IN
+    date-start: "2025-11-21"
+    date-end: "2025-11-22"
+  publisher:
+    name: IEEE
+  doi: "10.1109/ACET67282.2025.11430313"
+  start: 1
+  end: 6
+  year: 2025
