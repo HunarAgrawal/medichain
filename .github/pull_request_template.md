@@ -1,13 +1,14 @@
 ## Summary
 
-- 
+-
 
 ## Checks
 
-- [ ] `npm test -- --watchAll=false`
-- [ ] `npm run build`
-- [ ] `python -m py_compile main.py test_model.py`
+- [ ] `make lint` passes
+- [ ] `make test` passes
+- [ ] If the contract changed: `npm run export-abi` was run and `backend/app/chain.py` is updated
 
-## Security Review
+## Security review
 
-- [ ] No `.env` files, API keys, JWTs, private keys, patient data, or generated reports are included.
+- [ ] No `.env` files, databases, keys, patient data or generated reports are included
+- [ ] New endpoints have a role guard, and published-record access still goes through the contract

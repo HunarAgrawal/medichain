@@ -1,358 +1,164 @@
 # Medichain
 
-**A research-oriented prototype for trustworthy, AI-assisted medical imaging records using blockchain, IPFS, and explainable deep learning.**
+A role-based platform for AI-assisted medical imaging reports. Clinicians analyse a scan with a
+vision model, review the result and sign the report. Patients own their records and decide which
+clinicians can open them. Every signed report is encrypted at rest, anchored on an EVM chain and
+verifiable by anyone who holds the PDF.
 
-Medichain explores how decentralized storage, smart-contract-based verification, and AI-assisted medical image analysis can be combined into a transparent digital health workflow. The project demonstrates a complete proof of concept where a medical scan is uploaded to IPFS, analyzed by an AI service, converted into a verifiable PDF report, and linked to an on-chain patient record through immutable content hashes.
+> **Research prototype.** Not a medical device and not clinically validated. AI findings are
+> decision support and must be reviewed by a qualified clinician. Use synthetic or consented data.
 
-> This repository is intended for academic research, prototype demonstration, and engineering experimentation. It is not a clinical diagnostic system. AI predictions are preliminary outputs and must be reviewed by qualified medical professionals.
+## What each role can do
 
-## Research Motivation
-
-Medical imaging workflows often face three connected challenges:
-
-- **Trust:** Digital reports and image files can be copied, modified, or separated from their source evidence.
-- **Continuity:** Patient records are frequently fragmented across institutions, systems, and storage providers.
-- **Explainability:** AI predictions in medical imaging need visible supporting evidence, not only a final label.
-
-Medichain addresses these challenges through a hybrid design:
-
-- IPFS stores scan and report artifacts using content-addressed hashes.
-- A blockchain smart contract stores the hashes as tamper-evident references.
-- A FastAPI AI service generates top predictions and visual evidence such as heatmaps.
-- A PDF report links the AI output, patient metadata, and IPFS verification QR code.
-- A React interface provides a simple workflow for record creation and retrieval.
-
-## Novelty
-
-The novelty of this project is not in using a single technology, but in integrating several trust-focused components into one practical medical imaging pipeline:
-
-1. **Content-addressed medical evidence:** Uploaded scan files and generated reports are represented by IPFS hashes, making file integrity independently verifiable.
-2. **Blockchain-backed report provenance:** Smart contracts store image and report references so later users can verify whether a report belongs to the original uploaded scan.
-3. **Explainable AI reporting:** The system can include visual evidence, such as Grad-CAM style heatmaps, inside the generated PDF report.
-4. **Patient-record workflow simulation:** The prototype models a realistic path from scan upload to AI review, report generation, decentralized storage, and record retrieval.
-5. **Research-ready modular architecture:** The frontend, backend, model layer, PDF generator, IPFS integration, and blockchain interface are separated so each part can be extended independently.
-
-## Proposed Research Contribution
-
-This project can be presented as a research prototype for:
-
-- Secure and verifiable medical imaging record management.
-- Blockchain-assisted auditability for AI-generated medical reports.
-- Integration of explainable AI outputs into patient-facing or clinician-facing reports.
-- Hybrid off-chain/on-chain storage for sensitive healthcare data workflows.
-- A foundation for future work on consent management, access control, encryption, and model validation.
-
-## System Overview
-
-```text
-Patient Scan
-    |
-    v
-React Frontend -------- MetaMask Wallet
-    |                         |
-    |                         v
-    |                  Smart Contract
-    |                  stores IPFS hashes
-    |
-    +----> Pinata IPFS stores original scan
-    |
-    +----> FastAPI AI Service
-              |
-              +----> Image classification
-              +----> Optional explainability heatmap
-              +----> PDF report generation
-                         |
-                         v
-                  Pinata IPFS stores report
-```
-
-## Key Features
-
-- Patient record creation and lookup through a React frontend.
-- MetaMask wallet connection using `ethers`.
-- Scan and PDF upload to IPFS through Pinata.
-- FastAPI backend for AI-assisted medical image analysis.
-- Brain tumor MRI and chest X-ray analysis endpoints.
-- Chest X-ray visual explanation through Grad-CAM or attention rollout fallback.
-- PDF report generation with patient details, predictions, visual evidence, and IPFS QR verification.
-- Smart contract integration for storing image and report hashes.
-- Research documentation, contribution guide, security notes, and pull request template for team collaboration.
-
-## Tech Stack
-
-| Layer | Technology |
+| Role | In the app |
 | --- | --- |
-| Frontend | React, Axios, ethers.js |
-| Backend | FastAPI, PyTorch, Hugging Face Transformers |
-| Imaging | OpenCV, Pillow |
-| Explainability | Grad-CAM, ViT attention rollout fallback |
-| Reports | ReportLab, QRCode |
-| Storage | Pinata IPFS |
-| Blockchain | EVM-compatible smart contract through MetaMask |
+| **Clinician** | Run an AI analysis on a brain MRI or chest X-ray, review findings and the attention heatmap, write an impression and sign the report. Open records patients have shared. |
+| **Patient** | Read signed reports, open the PDF and scan, share records with clinicians or withdraw access (an on-chain consent), and see who opened each record. |
+| **Admin** | Create accounts (new clinicians are verified on-chain automatically), deactivate users (their access ends at once), monitor services and read the audit log. Admins never see clinical content. |
+| **Anyone** | Check that a report PDF is genuine and unaltered on the public `/verify` page. |
 
-## Project Structure
+## Try it
+
+Prerequisites: Python 3.12, Node.js 22 and Docker.
+
+```bash
+make setup      # Python venv, npm installs, backend/.env with freshly generated keys
+make ipfs       # local IPFS node (Docker)
+make chain      # terminal 1: local blockchain on :8545
+make deploy     # deploy the registry contract
+make seed       # demo accounts and sample studies
+make backend    # terminal 2: API on :8000
+make frontend   # terminal 3: app on http://localhost:3000
+```
+
+The login page lists the demo accounts; one click signs you in. They all use the password
+`medichain-demo`.
+
+| Account | Role | Starts with |
+| --- | --- | --- |
+| Dr. Ananya Rao | Clinician | One draft study awaiting review (Tomás Okafor) |
+| Priya Sharma | Patient | Two signed reports, already shared with Dr. Chen |
+| Dr. Daniel Chen | Clinician | Access to Priya's records only |
+| Tomás Okafor | Patient | Nothing signed yet |
+| Morgan Ellis | Admin | All accounts and the audit log |
+
+A five-minute walkthrough: sign in as **Dr. Rao**, review and sign Tomás's chest X-ray. Sign in as
+**Tomás** and open the report. Sign in as **Dr. Chen** and confirm you can open Priya's records but
+not Tomás's. Download a report as **Priya** and check it on `/verify`. Finish in the **admin**
+audit log, where every step appears. Sample scans for new studies are in [`samples/`](samples/).
+
+The local chain forgets everything when it restarts. After restarting `make chain`, run
+`make fresh` to redeploy, reset the local database and reseed.
+
+## How it works
 
 ```text
-medichain/
-├── main.py                  # FastAPI AI and PDF service
-├── test_model.py            # Standalone model loading smoke test
-├── environment.yml          # Conda environment
-├── requirements.txt         # pip dependencies
-├── CONTRIBUTING.md          # Team contribution workflow
-├── SECURITY.md              # Sensitive data and credential handling
-├── src/
-│   ├── App.js               # React application workflow
-│   ├── blockchainService.js # MetaMask and contract calls
-│   └── constants.js         # Contract ABI and env-based address
-└── public/                  # React static assets
+Clinician                     Medichain API                            Chain / IPFS
+─────────                     ─────────────                            ────────────
+upload scan ───────────────▶  validate, run ViT, attention heatmap
+                              save draft (scan sealed with AES-GCM)
+review + sign ─────────────▶  render PDF (findings, review, QR)
+                              seal scan + PDF, pin to IPFS ─────────▶  IPFS (ciphertext only)
+                              publishRecord(recordId, patient,
+                                reportSHA256, CIDs) signed with  ────▶  MediChainRegistry
+                                the clinician's key
+
+Patient opens a report ────▶  getRecord() from the patient's address
+                              (the contract decides), fetch CID,
+                              decrypt, check SHA-256 against chain ──▶  read-only calls
+Patient shares ────────────▶  grantAccess(clinician) signed with the
+                              patient's key ──────────────────────────▶  on-chain consent
+Anyone verifies a PDF ─────▶  SHA-256 → verifyReport() ──────────────▶  public lookup
 ```
 
-## Application Workflow
+## Security model
 
-1. User connects a MetaMask wallet.
-2. User enters patient ID, name, and age.
-3. User selects an analysis type.
-4. User uploads a medical scan image.
-5. The frontend uploads the original scan to Pinata IPFS.
-6. The backend analyzes the scan and returns top predictions.
-7. The backend generates a PDF report with prediction details and optional heatmap evidence.
-8. The frontend uploads the PDF report to Pinata IPFS.
-9. The frontend stores the scan and report hashes in the smart contract.
-10. A record can later be fetched by patient ID and verified through IPFS links.
+| Concern | How it is handled |
+| --- | --- |
+| Sign-in | Email and password hashed with scrypt; timing-safe checks; per-IP and per-account rate limits. Opaque server-side sessions in an `HttpOnly`, `SameSite=Strict` cookie, revocable at any time (logout, password change, deactivation). |
+| Request forgery | Same-origin API, strict CORS allowlist, and a required `X-Requested-With` header on every state-changing request. |
+| Authorization | Role guards on every endpoint. For published records the contract is the authority: the API calls `getRecord` *from the user's address*. Deactivating a clinician removes their registry status and with it all access. |
+| Keys | Each patient and clinician has a platform-held Ethereum key, sealed with `WALLET_ENCRYPTION_KEY` and bound to the account. On-chain actions are signed by the person who took them. An operator key owns the registry and funds gas. |
+| Confidentiality | Scans and reports are sealed with AES-256-GCM before they reach IPFS, bound to their study and file kind. The chain stores no names or IDs: patients are addresses and record IDs are random. Admins see metadata only. |
+| Integrity | The report's SHA-256 is anchored on-chain, checked on every download, and publicly verifiable. Ciphertexts cannot be swapped between records. |
+| Hardening | Upload type, size and pixel limits; decompression-bomb guard; strict validation; security headers; no stack traces in responses; logs record route templates, never IDs; models load only from `safetensors`; unsafe production settings refuse to start. |
+| Public on-chain | Addresses, record IDs, CIDs of ciphertext, report hashes and timestamps. |
 
-## Prerequisites
+## Models
 
-- Node.js 18 or newer
-- npm
-- Python 3.10
-- Conda or pip virtual environment
-- MetaMask browser extension
-- Pinata account and JWT
-- Deployed smart contract compatible with the ABI in `src/constants.js`
+| Analysis | Model | Classes | Reported val. accuracy |
+| --- | --- | --- | --- |
+| Brain tumor screening (MRI) | [`Hemgg/brain-tumor-classification`](https://huggingface.co/Hemgg/brain-tumor-classification) | glioma, meningioma, pituitary, no tumor | 97.6% |
+| Pneumonia screening (chest X-ray) | [`lxyuan/vit-xray-pneumonia-classification`](https://huggingface.co/lxyuan/vit-xray-pneumonia-classification) | normal, pneumonia | 97.4% |
 
-## Environment Variables
+Both are ViT-B/16 fine-tunes (86M parameters, Apache-2.0), about 70 ms per image on CPU. The
+accuracies are the authors' validation figures, not clinical validation. Weights download once
+(about 700 MB). Swap models with `BRAIN_TUMOR_MODEL` / `CHEST_XRAY_MODEL`; ViT models get
+attention rollout heatmaps and CNNs get Grad-CAM.
 
-Create a local `.env` file from the example:
-
-```bash
-cp .env.example .env
-```
-
-Then set:
-
-```env
-REACT_APP_API_BASE_URL=http://127.0.0.1:8000
-REACT_APP_PINATA_JWT=your_pinata_jwt
-REACT_APP_CONTRACT_ADDRESS=your_deployed_contract_address
-```
-
-React embeds `REACT_APP_*` values into the browser bundle. For production, move Pinata uploads behind a backend endpoint so the JWT is not exposed to users.
-
-Optional backend variables:
-
-```bash
-export CORS_ORIGINS=http://localhost:3000
-export BT_MODEL_NAME=google/vit-base-patch16-224-in21k
-export CXR_MODEL_NAME=facebook/convnext-tiny-224
-```
-
-## Backend Setup
-
-Using Conda:
-
-```bash
-conda env create -f environment.yml
-conda activate medchain_env
-uvicorn main:app --reload --host 127.0.0.1 --port 8000
-```
-
-Using pip:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --reload --host 127.0.0.1 --port 8000
-```
-
-Check the backend:
-
-```bash
-curl http://127.0.0.1:8000/health
-```
-
-The first backend startup can take time because Hugging Face model files may need to download.
-
-## Frontend Setup
-
-Install packages:
-
-```bash
-npm install
-```
-
-Start the React app:
-
-```bash
-npm start
-```
-
-Open:
+## Repository layout
 
 ```text
-http://localhost:3000
+backend/     FastAPI service: accounts, studies, sharing, admin, verification (+ tests)
+frontend/    React 19 + TypeScript + Tailwind app with patient, clinician and admin areas
+contracts/   MediChainRegistry.sol, Hardhat 3 tests, deployment and the exported ABI
+samples/     Openly licensed sample scans (see samples/README.md)
+Makefile     One entry point for setup, running, testing and linting (`make help`)
 ```
 
-## Smart Contract Configuration
+## API
 
-Configure the contract in your local `.env` file:
+All routes are under `/api/v1`. Interactive docs are at `/docs` when `ENABLE_DOCS=true`.
 
-- `REACT_APP_CONTRACT_ADDRESS`: deployed contract address.
-- `contractABI` in `src/constants.js`: ABI copied from Remix, Hardhat, Foundry, or your deployment output.
+| Area | Endpoints |
+| --- | --- |
+| Public | `GET /health`, `GET /meta`, `POST /verify` |
+| Session | `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/password` |
+| Studies | `POST /studies`, `GET /studies`, `GET /studies/{id}`, `POST /studies/{id}/publish`, `DELETE /studies/{id}`, `GET /studies/{id}/files/{scan\|report\|heatmap}`, `GET /studies/{id}/activity` |
+| People | `GET/POST /sharing`, `DELETE /sharing/{clinician_id}`, `GET /directory/clinicians`, `GET /directory/patients`, `GET /patients`, `GET /activity` |
+| Admin | `GET /admin/overview`, `GET/POST /admin/users`, `PATCH /admin/users/{id}`, `GET /admin/audit` |
 
-The current frontend expects these contract functions:
+## Configuration
 
-- `registerRecord(string _patientId, string _imageHash)`
-- `addReport(string _patientId, string _reportHash)`
-- `getRecord(string _patientId)`
-- `grantAccess(string _patientId, address _grantee)`
+Every backend setting is documented in [`backend/.env.example`](backend/.env.example); `make env`
+creates `backend/.env` with new keys. The frontend needs no configuration: it calls `/api` on its
+own origin, and Vite proxies that to the API in development.
 
-## Backend API
+## Deploying beyond localhost
 
-### `GET /health`
+- **Contract:** in `contracts/`, store credentials with `npx hardhat keystore set SEPOLIA_RPC_URL`
+  and `npx hardhat keystore set SEPOLIA_PRIVATE_KEY`, then run `npm run deploy:sepolia`.
+- **Backend:** set `ENVIRONMENT=production`, `DEMO_MODE=false`, `COOKIE_SECURE=true`,
+  `ENABLE_DOCS=false`, a real `PUBLIC_APP_URL`, a PostgreSQL `DATABASE_URL`
+  (`postgresql+asyncpg://…`, with `asyncpg` installed), the chain settings and a funded
+  `OPERATOR_PRIVATE_KEY` that owns the contract, `IPFS_PROVIDER=pinata` with `PINATA_JWT`, and
+  `EXPLORER_URL`. Run `uvicorn app.main:create_app --factory --proxy-headers --no-access-log`.
+- **Frontend:** `npm run build`, then serve `frontend/dist` and the API from one origin through a
+  reverse proxy, routing `/api` to the backend.
 
-Returns service status, loaded models, active device, and PyTorch version.
+## Limitations
 
-### `POST /analyze/brain_tumor`
+- The models are community fine-tunes, not clinically validated. PNG and JPEG only (no DICOM).
+- Keys are custodial and live in the database, sealed with an environment key. Production should
+  use a KMS or HSM, and could let users bring their own wallet.
+- Sharing covers all of a patient's records; per-record sharing is not implemented.
+- The schema is created on startup; there are no migrations yet.
+- There is no password reset, email verification or multi-factor sign-in yet.
 
-Accepts multipart form data:
+## Research
 
-```text
-file: image file
-```
-
-Returns:
-
-```json
-{
-  "top_predictions": [
-    { "label": "Glioma", "score": 0.91 }
-  ]
-}
-```
-
-### `POST /analyze/chest_xray`
-
-Accepts multipart form data:
-
-```text
-file: image file
-```
-
-Returns top predictions and an optional base64 heatmap image.
-
-### `POST /generate-report/`
-
-Accepts JSON:
-
-```json
-{
-  "patientId": "P001",
-  "patientName": "Patient Name",
-  "patientAge": "45",
-  "predictions": [
-    { "label": "No Finding", "score": 0.88 }
-  ],
-  "imageIpfsHash": "Qm...",
-  "heatmapImageBase64": null
-}
-```
-
-Returns a PDF file.
-
-## Testing
-
-Frontend tests:
-
-```bash
-npm test
-```
-
-Production frontend build:
-
-```bash
-npm run build
-```
-
-Backend syntax check:
-
-```bash
-python -m py_compile main.py test_model.py
-```
-
-Backend model smoke test:
-
-```bash
-python test_model.py
-```
-
-## Team Workflow
-
-1. Create a feature branch before making changes:
-
-```bash
-git checkout -b feature/short-description
-```
-
-2. Keep local secrets in `.env`; never commit `.env`.
-3. Run checks before opening a pull request:
-
-```bash
-npm test -- --watchAll=false
-npm run build
-python -m py_compile main.py test_model.py
-```
-
-4. Push the branch and open a pull request:
-
-```bash
-git push -u origin feature/short-description
-```
-
-## Security Notes
-
-- Do not commit `.env` files, private keys, seed phrases, JWTs, or API keys.
-- Revoke and rotate any Pinata JWT that was previously hard-coded or shared.
-- Use testnet contracts and test wallets for demonstrations.
-- Do not upload real patient data for demos unless proper consent, compliance controls, and secure infrastructure are in place.
-- For production, move IPFS uploads to the backend and authenticate users before accepting uploads.
-
-## Current Limitations
-
-- `SIMULATE_LABELS` is enabled in `main.py`, so clinical labels are simulated for demonstration.
-- The default Hugging Face models are general-purpose placeholder models, not clinically validated diagnostic models.
-- Blockchain storage only contains IPFS hashes and ownership/access metadata, not encrypted patient records.
-- The frontend exposes any `REACT_APP_*` variable in the browser bundle.
-- Access control and encryption are simplified for MVP demonstration.
-
-## Future Scope
-
-- Add encrypted IPFS storage for protected medical files.
-- Add role-based access control for patients, doctors, and institutions.
-- Implement consent-based sharing and revocation logic.
-- Validate the AI pipeline with curated medical imaging datasets.
-- Add audit logs for report access and modification attempts.
-- Move Pinata/IPFS upload logic to a secured backend service.
-- Deploy smart contracts and backend services on a testnet/cloud environment.
-
-## Suggested Citation
-
-If this repository is used as part of an academic submission, cite it as:
-
-```text
-Medichain: A Blockchain and IPFS Based Prototype for Verifiable AI-Assisted Medical Imaging Records.
-```
+An early, high-level write-up: H. S. Agrawal, V. Bhatnagar, A. Kumar, K. Singla, "Trusted Medical
+Imaging: A Blockchain Enabled Deep Learning Framework for Secure Healthcare," ACET 2025,
+[doi:10.1109/ACET67282.2025.11430313](https://doi.org/10.1109/ACET67282.2025.11430313). This
+repository is the reference implementation and supersedes the paper's details.
 
 ## License
 
-No license has been selected yet. Add a license before public distribution if reuse by others should be clearly permitted.
+Medichain is free software under the [GNU Affero General Public License v3.0](LICENSE)
+(`AGPL-3.0-only`). You may use, study, modify and share it. If you distribute a modified version,
+**or run one as a network service**, you must make its complete source code available to its
+users under the same license. The app's footer links to the source for that reason.
+
+Third-party material keeps its own license: the sample scans in `samples/` are CC BY 4.0 (see
+[`samples/README.md`](samples/README.md)), and the AI models, downloaded at runtime and not
+redistributed here, are Apache-2.0.

@@ -1,0 +1,69 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+@import "@fontsource/instrument-serif/400.css";
+
+@theme {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", monospace;
+  --font-serif: "Instrument Serif", ui-serif, Georgia, serif;
+
+  /* Warm monochrome base */
+  --color-canvas: #f7f6f3;
+  --color-surface: #ffffff;
+  --color-subtle: #f9f9f8;
+  --color-line: #eaeaea;
+  --color-ink: #2f3437;
+  --color-ink-strong: #111111;
+  --color-muted: #787774;
+
+  /* Semantic pastels: background / text */
+  --color-ok-soft: #edf3ec;
+  --color-ok: #346538;
+  --color-warn-soft: #fbf3db;
+  --color-warn: #956400;
+  --color-bad-soft: #fdebec;
+  --color-bad: #9f2f2d;
+  --color-info-soft: #e1f3fe;
+  --color-info: #1f6c9f;
+
+  --ease-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-enter: enter 500ms var(--ease-soft) both;
+
+  @keyframes enter {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+}
+
+@layer base {
+  html {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    min-height: 100dvh;
+    line-height: 1.6;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  ::selection {
+    background-color: var(--color-info-soft);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ink-strong);
+    outline-offset: 2px;
+  }
+}
