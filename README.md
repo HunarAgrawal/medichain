@@ -1,6 +1,9 @@
 <div align="center">
 
-<img src="frontend/public/favicon.svg" width="52" height="52" alt="Medichain logo" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/HunarAgrawal/medichain/main/docs/images/logo-dark.svg" />
+  <img src="frontend/public/favicon.svg" width="52" height="52" alt="Medichain logo" />
+</picture>
 
 # Medichain
 
@@ -199,9 +202,12 @@ implementation and supersedes its details. Use GitHub's **Cite this repository**
 
 ```bibtex
 @inproceedings{agrawal2025trusted,
-  title     = {Trusted Medical Imaging: A Blockchain Enabled Deep Learning Framework for Secure Healthcare},
-  author    = {Agrawal, Hunar Sajjan and Bhatnagar, Vaibhav and Kumar, Ashish and Singla, Kanika},
-  booktitle = {2025 2nd International Conference on Advanced Computing and Emerging Technologies (ACET)},
+  title     = {Trusted Medical Imaging: A Blockchain Enabled Deep Learning
+               Framework for Secure Healthcare},
+  author    = {Agrawal, Hunar Sajjan and Bhatnagar, Vaibhav and Kumar, Ashish
+               and Singla, Kanika},
+  booktitle = {2025 2nd International Conference on Advanced Computing and
+               Emerging Technologies (ACET)},
   pages     = {1--6},
   year      = {2025},
   publisher = {IEEE},
