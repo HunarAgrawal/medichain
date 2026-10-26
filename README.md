@@ -1,6 +1,9 @@
 <div align="center">
 
-<img src="frontend/public/favicon.svg" width="52" height="52" alt="Medichain logo" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/HunarAgrawal/medichain/main/docs/images/logo-dark.svg" />
+  <img src="frontend/public/favicon.svg" width="52" height="52" alt="Medichain logo" />
+</picture>
 
 # Medichain
 
@@ -38,22 +41,22 @@ Medichain is a role-based platform for AI-assisted medical imaging reports:
 <table>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/images/clinician-review.webp" alt="Clinician review screen: chest X-ray, attention heatmap, AI findings and the sign-off form" />
+      <img src="docs/images/clinician-review.webp" alt="Clinician review screen: chest X-ray, attention heatmap, AI findings and the sign-off form with the Sign and publish button" />
       <br /><sub><b>Clinician review.</b> AI findings and heatmap beside the sign-off form.</sub>
     </td>
-    <td width="50%" valign="top">
-      <img src="docs/images/login.webp" alt="Sign-in page listing one-click demo accounts for each role" />
-      <br /><sub><b>Sign in.</b> One-click demo accounts for every role.</sub>
-    </td>
-  </tr>
-  <tr>
     <td width="50%" valign="top">
       <img src="docs/images/verify.webp" alt="Public verification page confirming that a report PDF is authentic" />
       <br /><sub><b>Public verification.</b> Anyone can check a report PDF against the chain.</sub>
     </td>
+  </tr>
+  <tr>
     <td width="50%" valign="top">
-      <img src="docs/images/admin-overview.webp" alt="Admin overview with account counts and service health" />
-      <br /><sub><b>Admin overview.</b> Accounts, studies and service health, with no clinical data.</sub>
+      <img src="docs/images/patient-sharing.webp" alt="Patient sharing page: the clinicians who can open the patient's records, and others the patient can share with" />
+      <br /><sub><b>Patient sharing.</b> Each clinician's access is an on-chain consent the patient can withdraw.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/admin-users.webp" alt="Admin user list with each account's role, platform-held wallet and status" />
+      <br /><sub><b>Account management.</b> Roles, wallets and status. Admins never see clinical data.</sub>
     </td>
   </tr>
 </table>
@@ -199,9 +202,12 @@ implementation and supersedes its details. Use GitHub's **Cite this repository**
 
 ```bibtex
 @inproceedings{agrawal2025trusted,
-  title     = {Trusted Medical Imaging: A Blockchain Enabled Deep Learning Framework for Secure Healthcare},
-  author    = {Agrawal, Hunar Sajjan and Bhatnagar, Vaibhav and Kumar, Ashish and Singla, Kanika},
-  booktitle = {2025 2nd International Conference on Advanced Computing and Emerging Technologies (ACET)},
+  title     = {Trusted Medical Imaging: A Blockchain Enabled Deep Learning
+               Framework for Secure Healthcare},
+  author    = {Agrawal, Hunar Sajjan and Bhatnagar, Vaibhav and Kumar, Ashish
+               and Singla, Kanika},
+  booktitle = {2025 2nd International Conference on Advanced Computing and
+               Emerging Technologies (ACET)},
   pages     = {1--6},
   year      = {2025},
   publisher = {IEEE},
