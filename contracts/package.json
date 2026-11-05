@@ -21,7 +21,7 @@
     "@openzeppelin/contracts": "^5.6.1"
   },
   "devDependencies": {
-    "@nomicfoundation/hardhat-ethers": "^4.2.1",
+    "@nomicfoundation/hardhat-ethers": "^4.2.2",
     "@nomicfoundation/hardhat-ignition": "^3.1.9",
     "@nomicfoundation/hardhat-toolbox-mocha-ethers": "^4.0.0",
     "@types/chai": "^5.2.3",
@@ -30,7 +30,7 @@
     "@types/node": "^22.20.5",
     "chai": "^6.3.0",
     "ethers": "^6.17.0",
-    "hardhat": "^3.20.0",
+    "hardhat": "^3.21.2",
     "mocha": "^12.0.3",
     "typescript": "^6.0.3"
   }
