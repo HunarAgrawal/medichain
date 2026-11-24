@@ -18,6 +18,7 @@ def test_login_sets_a_hardened_session_cookie(env: Env) -> None:
 
     assert response.status_code == 200
     assert response.json()["name"] == "Asha Verma"
+    assert response.json()["organization"]["name"] == "Test Hospital 1"
     cookie = response.headers["set-cookie"].lower()
     for flag in ("httponly", "samesite=strict", "path=/api", "max-age=3600"):
         assert flag in cookie
@@ -47,16 +48,16 @@ def test_failed_login_is_audited_against_the_account(env: Env, services) -> None
 
 def test_deactivated_users_cannot_sign_in(env: Env) -> None:
     admin = env.user(Role.ADMIN)
-    patient = env.user(Role.PATIENT)
+    doctor = env.user(Role.DOCTOR)
     env.login(admin)
-    env.client.patch(f"/api/v1/admin/users/{patient.id}", json={"is_active": False})
+    env.client.patch(f"/api/v1/admin/users/{doctor.id}", json={"is_active": False})
 
-    response = env.client.post(LOGIN, json={"email": patient.email, "password": PASSWORD})
+    response = env.client.post(LOGIN, json={"email": doctor.email, "password": PASSWORD})
     assert response.status_code == 401
 
 
 def test_logout_revokes_the_session(env: Env) -> None:
-    env.login(env.user(Role.CLINICIAN))
+    env.login(env.user(Role.RADIOLOGIST))
     cookie = env.client.cookies.get("medichain_session")
     assert env.client.post("/api/v1/auth/logout").status_code == 204
 

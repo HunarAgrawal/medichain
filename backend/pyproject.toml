@@ -1,7 +1,7 @@
 [project]
 name = "medichain-backend"
-version = "0.3.0"
-description = "Medichain API: role-based imaging studies, encrypted IPFS storage and an on-chain provenance and consent ledger."
+version = "0.4.0"
+description = "Medichain API: radiology reporting for hospitals, with encrypted storage and an on-chain provenance and consent ledger."
 requires-python = ">=3.12"
 license = "AGPL-3.0-only"
 dependencies = [

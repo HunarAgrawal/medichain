@@ -69,8 +69,17 @@ def _revert(name: str) -> dict:
 
 
 async def test_get_record_runs_from_the_caller_and_decodes_the_tuple() -> None:
-    record = (USER.address, 1_700_000_000, OPERATOR.address, b"\x22" * 32, "bafyscan", "bafyreport")
-    node = Node(eth_call=_hex(["(address,uint64,address,bytes32,string,string)"], [record]))
+    record = (
+        USER.address,
+        1_700_000_000,
+        OPERATOR.address,
+        b"\x22" * 32,
+        "bafyscan",
+        "bafyreport",
+        "0x" + "00" * 20,
+    )
+    tuple_type = "(address,uint64,address,bytes32,string,string,address)"
+    node = Node(eth_call=_hex([tuple_type], [record]))
 
     result = await _client(node).get_record(RECORD_ID, caller=USER.address)
 
@@ -79,6 +88,7 @@ async def test_get_record_runs_from_the_caller_and_decodes_the_tuple() -> None:
     assert tx["data"].startswith("0x213681cd")
     assert result.patient == USER.address and result.issuer == OPERATOR.address
     assert result.report_hash == "22" * 32 and result.report_cid == "bafyreport"
+    assert result.referrer is None, "a zero referrer means none"
 
 
 async def test_verify_report_maps_the_zero_record_to_none() -> None:
@@ -164,7 +174,7 @@ async def test_reverted_estimates_surface_the_contract_error() -> None:
     node.handlers["eth_estimateGas"] = _revert("NotClinician")
     with pytest.raises(ContractRejected, match="NotClinician"):
         await _client(node).publish_record(
-            USER, RECORD_ID, USER.address, "ab" * 32, "bafys", "bafyr"
+            USER, RECORD_ID, USER.address, None, "ab" * 32, "bafys", "bafyr"
         )
 
 
@@ -197,4 +207,6 @@ def test_backend_signatures_match_the_compiled_contract() -> None:
     assert set(SIGNATURES.values()) <= functions
     assert set(ERRORS) <= errors
     get_record = next(e for e in abi if e.get("name") == "getRecord")
-    assert _type(get_record["outputs"][0]) == "(address,uint64,address,bytes32,string,string)"
+    assert (
+        _type(get_record["outputs"][0]) == "(address,uint64,address,bytes32,string,string,address)"
+    )

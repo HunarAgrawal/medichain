@@ -43,14 +43,28 @@ async def verify_report(
 
     study = await db.scalar(select(Study).where(Study.record_id == found.record_id))
     issuer = await db.scalar(select(User).where(User.wallet_address == found.issuer))
-    audit.record(db, Action.REPORT_VERIFIED, study_id=study.id if study else None)
+    audit.record(
+        db,
+        Action.REPORT_VERIFIED,
+        study_id=study.id if study else None,
+        org_id=study.org_id if study else None,
+    )
     await db.commit()
     return VerifyResponse(
         authentic=True,
         report_sha256=report_sha256,
         record_id=found.record_id,
         published_at=datetime.fromtimestamp(found.published_at, UTC),
-        issuer=Issuer(name=issuer.name, title=issuer.title) if issuer else None,
+        issuer=Issuer(
+            name=issuer.name,
+            title=issuer.title,
+            qualification=issuer.qualification,
+            registration_number=issuer.registration_number,
+            organization=issuer.organization.name,
+        )
+        if issuer
+        else None,
         analysis_name=ANALYSIS_TYPES[study.analysis_type].name if study else None,
+        accession=study.accession if study else None,
         matches_expected_record=(found.record_id == expected) if expected else None,
     )

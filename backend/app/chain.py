@@ -31,13 +31,14 @@ SIGNATURES = {
     "isClinician": "isClinician(address)",
     "owner": "owner()",
     "setClinician": "setClinician(address,bool)",
-    "publishRecord": "publishRecord(bytes32,address,bytes32,string,string)",
+    "publishRecord": "publishRecord(bytes32,address,address,bytes32,string,string)",
     "grantAccess": "grantAccess(address)",
     "revokeAccess": "revokeAccess(address)",
 }
 ERRORS = [
     "NotClinician",
     "InvalidAddress",
+    "InvalidReferrer",
     "InvalidRecordId",
     "InvalidHash",
     "InvalidCid",
@@ -51,8 +52,9 @@ _ERROR_SIGNATURES = {
     name: f"{name}(address)" if name.startswith("Ownable") else f"{name}()" for name in ERRORS
 }
 _ERRORS_BY_SELECTOR = {selector(sig): name for name, sig in _ERROR_SIGNATURES.items()}
-_RECORD_TUPLE = "(address,uint64,address,bytes32,string,string)"
+_RECORD_TUPLE = "(address,uint64,address,bytes32,string,string,address)"
 
+ZERO_ADDRESS = "0x" + "00" * 20
 MIN_GAS_BALANCE_WEI = 10**16  # 0.01 ETH
 GAS_TOP_UP_WEI = 5 * 10**16  # 0.05 ETH
 RECEIPT_TIMEOUT_SECONDS = 120.0
@@ -78,6 +80,7 @@ class OnChainRecord:
     report_hash: str
     scan_cid: str
     report_cid: str
+    referrer: str | None = None
 
 
 @dataclass(frozen=True)
@@ -110,6 +113,7 @@ class Registry(Protocol):
         signer: LocalAccount,
         record_id: str,
         patient: str,
+        referrer: str | None,
         report_sha256: str,
         scan_cid: str,
         report_cid: str,
@@ -162,7 +166,7 @@ class RegistryClient:
         (record,) = await self._call(
             "getRecord", ["bytes32"], [_bytes32(record_id)], [_RECORD_TUPLE], sender=caller
         )
-        patient, published_at, issuer, report_hash, scan_cid, report_cid = record
+        patient, published_at, issuer, report_hash, scan_cid, report_cid, referrer = record
         return OnChainRecord(
             patient=to_checksum_address(patient),
             published_at=int(published_at),
@@ -170,6 +174,7 @@ class RegistryClient:
             report_hash=report_hash.hex(),
             scan_cid=scan_cid,
             report_cid=report_cid,
+            referrer=None if int(referrer, 16) == 0 else to_checksum_address(referrer),
         )
 
     async def verify_report(self, report_sha256: str) -> VerifiedReport | None:
@@ -208,6 +213,7 @@ class RegistryClient:
         signer: LocalAccount,
         record_id: str,
         patient: str,
+        referrer: str | None,
         report_sha256: str,
         scan_cid: str,
         report_cid: str,
@@ -215,8 +221,15 @@ class RegistryClient:
         return await self._transact(
             signer,
             "publishRecord",
-            ["bytes32", "address", "bytes32", "string", "string"],
-            [_bytes32(record_id), patient, _bytes32(report_sha256), scan_cid, report_cid],
+            ["bytes32", "address", "address", "bytes32", "string", "string"],
+            [
+                _bytes32(record_id),
+                patient,
+                referrer or ZERO_ADDRESS,
+                _bytes32(report_sha256),
+                scan_cid,
+                report_cid,
+            ],
         )
 
     async def grant_access(self, signer: LocalAccount, clinician: str) -> str:

@@ -12,7 +12,7 @@ from app.chain import Registry, RegistryClient
 from app.config import Settings
 from app.db import create_engine, create_sessionmaker
 from app.ml.engine import Engine, TransformersEngine
-from app.storage import IpfsStorage, create_storage
+from app.storage import Storage, create_storage
 from app.wallets import WalletVault
 
 
@@ -34,7 +34,7 @@ class Services:
     sessions: SessionManager
     vault: WalletVault
     ml: Engine
-    storage: IpfsStorage
+    storage: Storage
     registry: Registry
     limits: RateLimits = field(default_factory=RateLimits)
 

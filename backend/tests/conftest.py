@@ -22,7 +22,7 @@ from app.config import HARDHAT_DEV_KEY, Settings
 from app.db import create_engine, create_sessionmaker
 from app.main import create_app
 from app.ml.engine import Inference, Prediction
-from app.models import Role, User
+from app.models import Organization, OrgKind, Role, Sex, Site, SiteKind, User
 from app.services import Services
 from app.storage import StorageError
 from app.wallets import WalletVault
@@ -69,7 +69,7 @@ class FakeStorage:
         return self.blobs[cid]
 
     async def ping(self) -> str:
-        return "Fake IPFS"
+        return "Fake storage"
 
 
 class FakeRegistry:
@@ -96,8 +96,8 @@ class FakeRegistry:
             return False
         if account == record.patient:
             return True
-        granted = account == record.issuer or account in self.grants[record.patient]
-        return granted and account in self.clinicians
+        named = account in (record.issuer, record.referrer)
+        return account in self.clinicians and (named or account in self.grants[record.patient])
 
     async def get_record(self, record_id: str, caller: str) -> OnChainRecord:
         if record_id not in self.records:
@@ -128,18 +128,21 @@ class FakeRegistry:
         signer: LocalAccount,
         record_id: str,
         patient: str,
+        referrer: str | None,
         report_sha256: str,
         scan_cid: str,
         report_cid: str,
     ) -> str:
         if signer.address not in self.clinicians:
             raise ContractRejected("NotClinician")
+        if referrer and (referrer == patient or referrer not in self.clinicians):
+            raise ContractRejected("InvalidReferrer")
         if record_id in self.records:
             raise ContractRejected("RecordAlreadyExists")
         if report_sha256 in self.by_hash:
             raise ContractRejected("DuplicateReport")
         self.records[record_id] = OnChainRecord(
-            patient, 1_700_000_000, signer.address, report_sha256, scan_cid, report_cid
+            patient, 1_700_000_000, signer.address, report_sha256, scan_cid, report_cid, referrer
         )
         self.by_hash[report_sha256] = record_id
         return self._tx_hash()
@@ -198,11 +201,12 @@ def build_services(settings: Settings) -> Services:
 
 
 class Env:
-    """A running app plus helpers to create users and act as them."""
+    """A running app plus helpers to create an organization, its people, and act as them."""
 
     def __init__(self, client: TestClient, services: Services) -> None:
         self.client = client
         self.services = services
+        self._orgs: list[tuple[Organization, Site]] = []
 
     @property
     def registry(self) -> FakeRegistry:
@@ -215,17 +219,62 @@ class Env:
     def run(self, fn, *args, **kwargs):
         return self.client.portal.call(partial(fn, *args, **kwargs))
 
-    def user(self, role: Role, name: str | None = None, **kwargs: object) -> User:
+    def organization(self, index: int = 0) -> tuple[Organization, Site]:
+        """A test hospital and its first site. Index 1 is a second, unrelated tenant."""
+        while len(self._orgs) <= index:
+            number = len(self._orgs) + 1
+
+            async def create(number: int = number) -> tuple[Organization, Site]:
+                async with self.services.db() as db:
+                    org = await workflows.create_organization(
+                        db,
+                        name=f"Test Hospital {number}",
+                        short_name=f"Hospital {number}",
+                        kind=OrgKind.HOSPITAL,
+                        uhid_prefix=f"TH{number}",
+                        city="Pune",
+                    )
+                    site = await workflows.create_site(
+                        db,
+                        org_id=org.id,
+                        name="Radiology",
+                        code="MAIN",
+                        kind=SiteKind.RADIOLOGY_DEPARTMENT,
+                    )
+                    await db.commit()
+                    return org, site
+
+            self._orgs.append(self.run(create))
+        return self._orgs[index]
+
+    def user(self, role: Role, name: str | None = None, org: int = 0, **kwargs: object) -> User:
+        """Staff with a password, or a patient with portal access, in organization `org`."""
+        organization, _ = self.organization(org)
+        email = f"{uuid.uuid4().hex[:10]}@example.com"
+
         async def create() -> User:
             async with self.services.db() as db:
-                return await workflows.create_user(
+                if role is Role.PATIENT:
+                    return await workflows.register_patient(
+                        self.services,
+                        db,
+                        org=organization,
+                        actor=None,
+                        name=name or "Test patient",
+                        sex=Sex.FEMALE,
+                        date_of_birth=date(1980, 1, 1),
+                        email=email,
+                        password=PASSWORD,
+                        **kwargs,
+                    )
+                return await workflows.create_staff(
                     self.services,
                     db,
+                    org_id=organization.id,
                     name=name or f"Test {role.value}",
-                    email=f"{uuid.uuid4().hex[:10]}@example.com",
+                    email=email,
                     role=role,
                     password=PASSWORD,
-                    date_of_birth=date(1980, 1, 1) if role is Role.PATIENT else None,
                     **kwargs,
                 )
 
@@ -237,21 +286,32 @@ class Env:
         )
         assert response.status_code == 200, response.text
 
-    def draft(self, clinician: User, patient: User, analysis_type: str = "brain_tumor") -> dict:
-        self.login(clinician)
+    def draft(
+        self, actor: User, patient: User, analysis_type: str = "brain_tumor", **fields: str
+    ) -> dict:
+        """Acquire a study as `actor` (a technician or radiologist)."""
+        self.login(actor)
         response = self.client.post(
             "/api/v1/studies",
-            data={"patient_id": patient.id, "analysis_type": analysis_type},
+            data={"patient_id": patient.id, "analysis_type": analysis_type, **fields},
             files={"file": ("scan.png", png_bytes(), "image/png")},
         )
         assert response.status_code == 201, response.text
         return response.json()
 
-    def published(self, clinician: User, patient: User) -> dict:
-        study = self.draft(clinician, patient)
+    def published(
+        self, radiologist: User, patient: User, referrer: User | None = None, **report: object
+    ) -> dict:
+        """Acquire and report a study as `radiologist`, optionally for a referring doctor."""
+        fields = {"referrer_id": referrer.id} if referrer else {}
+        study = self.draft(radiologist, patient, **fields)
         response = self.client.post(
             f"/api/v1/studies/{study['id']}/publish",
-            json={"final_finding": "Glioma", "impression": "Enhancing left frontal mass."},
+            json={
+                "final_finding": "Glioma",
+                "impression": "Enhancing left frontal mass.",
+                **report,
+            },
         )
         assert response.status_code == 200, response.text
         return response.json()
