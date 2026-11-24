@@ -24,8 +24,11 @@ const ACTIONS = [
   "login_failed",
   "logout",
   "password_changed",
+  "patient_registered",
+  "portal_enabled",
   "study_created",
   "study_published",
+  "critical_finding",
   "study_discarded",
   "file_viewed",
   "access_granted",
@@ -33,6 +36,8 @@ const ACTIONS = [
   "user_created",
   "user_deactivated",
   "user_reactivated",
+  "settings_updated",
+  "site_created",
   "report_verified",
 ];
 const PAGE = 50;
@@ -52,7 +57,7 @@ export function AuditPage() {
     <>
       <PageHeader
         title="Audit log"
-        description="Every sign-in, study, file access and consent change. Entries with a transaction are also recorded on-chain."
+        description="Every sign-in, registration, report, file view and consent change in this workspace. Entries with a transaction are also recorded on the tamper-evident ledger."
         action={
           <div className="w-56">
             <label htmlFor="action-filter" className="sr-only">

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { api, ApiError, errorMessage, type AuditEvent, type User } from "./api";
+import { ageSex, formatMinutes, formatPhone, maskAbha, tatState } from "./clinical";
 import { describeEvent } from "./describeEvent";
 import { age, formatDate, initials, shortHash } from "./format";
 
@@ -63,7 +64,7 @@ const me = {
 const rao = {
   id: "rao",
   name: "Dr. Ananya Rao",
-  role: "clinician" as const,
+  role: "radiologist" as const,
   title: "Radiologist",
   reference: "MC-2",
 };
@@ -88,7 +89,10 @@ describe("describeEvent", () => {
       "You shared records with Dr. Ananya Rao",
     );
     expect(describeEvent(event({ action: "study_published", actor: rao, target: me }), me)).toBe(
-      "Dr. Ananya Rao signed and published a report for you",
+      "Dr. Ananya Rao signed a report for you",
+    );
+    expect(describeEvent(event({ action: "critical_finding", actor: rao, target: me }), me)).toBe(
+      "Dr. Ananya Rao flagged a critical finding for you",
     );
     expect(
       describeEvent(event({ action: "file_viewed", actor: rao, target: rao, detail: "scan" }), me),
@@ -96,6 +100,24 @@ describe("describeEvent", () => {
     expect(
       describeEvent(event({ action: "user_created", target: me, detail: "patient" }), me),
     ).toBe("Setup created your patient account");
+  });
+});
+
+describe("clinical", () => {
+  it("formats turnaround times and judges them against targets", () => {
+    expect(formatMinutes(45)).toBe("45 min");
+    expect(formatMinutes(200)).toBe("3 h 20 min");
+    expect(formatMinutes(60 * 26)).toBe("1 d 2 h");
+    expect(tatState(30, 60)).toBe("ok");
+    expect(tatState(55, 60)).toBe("near");
+    expect(tatState(61, 60)).toBe("late");
+  });
+
+  it("shows patient facts compactly and masks identifiers", () => {
+    expect(ageSex({ age: 47, sex: "F" })).toBe("47 y · F");
+    expect(ageSex({ age: null, sex: null })).toBe("");
+    expect(formatPhone("+919876543210")).toBe("+91 98765 43210");
+    expect(maskAbha("12-3456-7890-1234")).toBe("XX-XXXX-XXXX-1234");
   });
 });
 

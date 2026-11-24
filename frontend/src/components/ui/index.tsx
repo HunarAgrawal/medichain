@@ -254,14 +254,6 @@ export function Badge({ tone = "neutral", children }: { tone?: Tone; children: R
   );
 }
 
-export function StudyStatusBadge({ status }: { status: "draft" | "published" }) {
-  return status === "draft" ? (
-    <Badge tone="warn">Awaiting review</Badge>
-  ) : (
-    <Badge tone="ok">Signed</Badge>
-  );
-}
-
 const ALERT_STYLES = {
   error: { box: "bg-bad-soft text-bad", Icon: WarningCircleIcon },
   warning: { box: "bg-warn-soft text-warn", Icon: WarningCircleIcon },
@@ -414,7 +406,7 @@ export function StatCard({
   return (
     <div className="border-line bg-surface rounded-xl border p-5">
       <div className="text-muted text-xs font-medium tracking-[0.06em] uppercase">{label}</div>
-      <div className="text-ink-strong mt-2 font-serif text-4xl leading-none tracking-[-0.02em] tabular-nums">
+      <div className="text-ink-strong mt-2 text-3xl leading-none font-semibold tracking-[-0.02em]">
         {value}
       </div>
       {hint && <div className="text-muted mt-2 text-xs">{hint}</div>}
@@ -532,5 +524,66 @@ export function Td({ children, className }: { children?: ReactNode; className?: 
     >
       {children}
     </td>
+  );
+}
+
+// Choice
+
+/** A compact single-choice control (radio group styled as a segmented button). */
+export function Segmented<T extends string>({
+  name,
+  label,
+  value,
+  options,
+  onChange,
+  disabled,
+}: {
+  name: string;
+  label: string;
+  value: T;
+  options: { value: T; label: string; tone?: "bad" | "warn" }[];
+  onChange: (value: T) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className="bg-subtle border-line inline-flex max-w-full rounded-lg border p-0.5"
+    >
+      {options.map((option) => {
+        const selected = option.value === value;
+        return (
+          <label
+            key={option.value}
+            className={cx(
+              "cursor-pointer rounded-md px-3 py-1.5 text-sm whitespace-nowrap transition-colors has-focus-visible:outline-2 has-focus-visible:outline-offset-1",
+              selected
+                ? cx(
+                    "bg-surface font-medium shadow-[0_1px_2px_rgba(0,0,0,0.08)]",
+                    option.tone === "bad"
+                      ? "text-bad"
+                      : option.tone === "warn"
+                        ? "text-warn"
+                        : "text-ink-strong",
+                  )
+                : "text-muted hover:text-ink-strong",
+              disabled && "pointer-events-none opacity-60",
+            )}
+          >
+            <input
+              type="radio"
+              name={name}
+              value={option.value}
+              checked={selected}
+              disabled={disabled}
+              onChange={() => onChange(option.value)}
+              className="sr-only"
+            />
+            {option.label}
+          </label>
+        );
+      })}
+    </div>
   );
 }

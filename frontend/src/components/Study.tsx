@@ -1,84 +1,132 @@
-/** Building blocks for showing an imaging study. Shared by patient and clinician screens. */
+/** Building blocks for showing an imaging study. Shared by staff and patient screens. */
 
-import { ArrowSquareOutIcon, SealCheckIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, CheckIcon, SealCheckIcon } from "@phosphor-icons/react";
 import { Link } from "react-router";
 
 import { fileUrl, type StudyDetail } from "../lib/api";
-import { age, formatDate, formatDateTime, shortHash } from "../lib/format";
+import { ageSex } from "../lib/clinical";
+import { formatDateTime, shortHash } from "../lib/format";
 import { explorerTxUrl, useMeta } from "../lib/queries";
-import { Badge, Card, DetailList, Prediction, SectionTitle, StudyStatusBadge } from "./ui";
-import { buttonClass } from "./ui/classes";
+import { CriticalBadge, PriorityBadge, StatusBadge, Turnaround, WaitingTime } from "./Clinical";
+import { Badge, Card, DetailList, Prediction, SectionTitle } from "./ui";
+import { buttonClass, cx } from "./ui/classes";
 
-export function StudyHeader({
+/** Title row plus the patient and order details a radiologist reads before the images. */
+export function StudyBanner({
   study,
-  viewer,
+  showPatient = true,
 }: {
   study: StudyDetail;
-  viewer: "patient" | "clinician";
+  showPatient?: boolean;
 }) {
-  const patient = study.patient;
-  const when = study.published_at ?? study.created_at;
+  const facts: [string, string][] = [
+    ["Accession", study.accession],
+    ["Site", study.site.name],
+    ["Referred by", study.referred_by ?? "Self"],
+    ["Acquired", formatDateTime(study.created_at)],
+  ];
   return (
     <header className="mb-8">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Badge>{study.modality}</Badge>
-        <StudyStatusBadge status={study.status} />
+        <PriorityBadge priority={study.priority} />
+        <StatusBadge study={study} />
+        {study.critical && <CriticalBadge />}
       </div>
       <h1 className="text-ink-strong font-serif text-4xl leading-[1.1] tracking-[-0.02em] sm:text-[44px]">
-        {study.analysis_name}
+        {showPatient ? study.patient.name : study.analysis_name}
       </h1>
-      <p className="text-muted mt-3 text-sm">
-        {viewer === "clinician" && (
+      <p className="text-muted mt-2 text-sm">
+        {showPatient ? (
           <>
-            <span className="text-ink-strong font-medium">{patient.name}</span> ·{" "}
-            {patient.reference} ·{" "}
+            <Link
+              to={`/patients/${study.patient.id}`}
+              className="hover:text-ink-strong underline-offset-4 hover:underline"
+            >
+              {study.patient.uhid}
+            </Link>
+            {ageSex(study.patient) && ` · ${ageSex(study.patient)}`} · {study.analysis_name}
           </>
+        ) : (
+          `${study.accession} · ${study.site.name}`
         )}
-        {study.status === "published" ? "Signed" : "Analysed"} {formatDateTime(when)} by{" "}
-        {study.clinician.name}
-        {study.clinician.title ? `, ${study.clinician.title}` : ""}
       </p>
+      {showPatient && (
+        <dl className="border-line mt-5 grid grid-cols-2 gap-x-6 gap-y-3 border-t pt-4 text-sm sm:grid-cols-4">
+          {facts.map(([label, value]) => (
+            <div key={label} className="min-w-0">
+              <dt className="text-muted text-xs">{label}</dt>
+              <dd className="text-ink-strong truncate" title={value}>
+                {value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {study.indication && (
+        <p className="bg-subtle border-line mt-4 rounded-lg border px-4 py-3 text-sm">
+          <span className="text-muted">Clinical indication: </span>
+          <span className="text-ink-strong">{study.indication}</span>
+        </p>
+      )}
     </header>
   );
 }
 
-export function ClinicalReview({ study }: { study: StudyDetail }) {
+export function SignedReport({ study }: { study: StudyDetail }) {
   if (study.status !== "published" || !study.final_finding) return null;
+  const signer = study.radiologist;
   return (
-    <Card>
+    <Card className={cx(study.critical && "border-bad/40")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-muted text-xs font-medium tracking-[0.06em] uppercase">
-            Clinician's finding
-          </p>
+          <p className="text-muted text-xs font-medium tracking-[0.06em] uppercase">Impression</p>
           <p className="text-ink-strong mt-1 font-serif text-3xl tracking-[-0.02em]">
             {study.final_finding}
           </p>
         </div>
-        {study.ai_agrees === true && <Badge tone="ok">Agrees with AI</Badge>}
-        {study.ai_agrees === false && <Badge tone="info">Differs from AI</Badge>}
+        <div className="flex flex-wrap gap-2">
+          {study.critical && <CriticalBadge />}
+          {study.ai_agrees === true && <Badge tone="ok">Agrees with AI</Badge>}
+          {study.ai_agrees === false && <Badge tone="info">Differs from AI</Badge>}
+        </div>
       </div>
-      <p className="text-ink mt-5 leading-relaxed whitespace-pre-line">{study.impression}</p>
+      <p className="text-ink mt-4 leading-relaxed whitespace-pre-line">{study.impression}</p>
+      {study.findings && (
+        <>
+          <p className="text-muted mt-6 text-xs font-medium tracking-[0.06em] uppercase">
+            Findings
+          </p>
+          <p className="text-ink mt-1.5 leading-relaxed whitespace-pre-line">{study.findings}</p>
+        </>
+      )}
       <p className="text-muted border-line mt-6 border-t pt-4 text-sm">
-        Signed by {study.clinician.name}
-        {study.clinician.title ? `, ${study.clinician.title}` : ""}
-        {study.published_at ? ` on ${formatDate(study.published_at)}` : ""}.
+        Signed by {signer?.name}
+        {signer?.title ? `, ${signer.title}` : ""}
+        {study.published_at ? ` on ${formatDateTime(study.published_at)}` : ""}
+        {study.turnaround_minutes !== null && (
+          <>
+            {" "}
+            · turnaround <Turnaround study={study} />
+          </>
+        )}
       </p>
     </Card>
   );
 }
 
 export function AiFindings({ study }: { study: StudyDetail }) {
+  if (study.predictions.length === 0) return null;
   return (
     <Card>
-      <SectionTitle>AI findings</SectionTitle>
+      <SectionTitle>AI pre-read</SectionTitle>
       <ul className="space-y-3">
         {study.predictions.map((p, index) => (
           <Prediction key={p.label} label={p.label} score={p.score} highlight={index === 0} />
         ))}
       </ul>
       <p className="text-muted mt-5 text-xs">
-        {study.model_id} · Decision support only. The clinician's review is the clinical
+        {study.model_id} · Decision support only. The radiologist's report is the clinical
         interpretation.
       </p>
     </Card>
@@ -89,7 +137,7 @@ export function ScanImages({ study }: { study: StudyDetail }) {
   return (
     <Card>
       <SectionTitle>Images</SectionTitle>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className={cx("grid gap-4", study.has_heatmap && "sm:grid-cols-2")}>
         <figure>
           <img
             src={fileUrl(study.id, "scan")}
@@ -106,7 +154,7 @@ export function ScanImages({ study }: { study: StudyDetail }) {
               className="aspect-square w-full rounded-lg bg-black object-contain"
             />
             <figcaption className="text-muted mt-2 text-xs">
-              Model attention. Warmer areas influenced the AI more.
+              AI attention. Warmer areas influenced the model more.
             </figcaption>
           </figure>
         )}
@@ -135,15 +183,15 @@ export function RecordProof({ study }: { study: StudyDetail }) {
         <ArrowSquareOutIcon aria-hidden weight="bold" className="size-4" /> Open report (PDF)
       </a>
       <p className="text-muted mt-4 text-xs leading-relaxed">
-        The report's fingerprint is anchored on-chain. Anyone you send the PDF to can confirm it is
-        genuine on the{" "}
+        The report's fingerprint is registered on a tamper-evident ledger. Anyone you send the PDF
+        to can confirm it is genuine on the{" "}
         <Link
           to={`/verify?record=${record.record_id}`}
           className="text-ink-strong underline underline-offset-2"
         >
           verification page
         </Link>
-        .
+        , or by scanning its QR code.
       </p>
       <div className="mt-4">
         <DetailList
@@ -170,13 +218,6 @@ export function RecordProof({ study }: { study: StudyDetail }) {
               mono: true,
               copy: true,
             },
-            {
-              label: "Scan SHA-256",
-              value: record.scan_sha256,
-              display: shortHash(record.scan_sha256, 6, 4),
-              mono: true,
-              copy: true,
-            },
           ]}
         />
       </div>
@@ -184,17 +225,51 @@ export function RecordProof({ study }: { study: StudyDetail }) {
   );
 }
 
-export function PatientFacts({
-  dateOfBirth,
-  reference,
-}: {
-  dateOfBirth: string | null;
-  reference: string;
-}) {
+/** Where a study is, without any clinical content: for technicians and waiting referrers. */
+export function StudyProgress({ study }: { study: StudyDetail }) {
+  const reported = study.status === "published";
+  const steps = [
+    {
+      label: "Acquired",
+      detail: `${formatDateTime(study.created_at)} by ${study.created_by.name}`,
+      done: true,
+    },
+    { label: "AI pre-read", detail: "Completed in seconds", done: true },
+    {
+      label: reported ? "Reported" : "Awaiting report",
+      detail: reported
+        ? `${study.published_at ? formatDateTime(study.published_at) : ""}${study.radiologist ? ` by ${study.radiologist.name}` : ""}`
+        : null,
+      done: reported,
+    },
+  ];
   return (
-    <span>
-      {reference}
-      {dateOfBirth && ` · Born ${formatDate(dateOfBirth)} (${age(dateOfBirth)})`}
-    </span>
+    <Card>
+      <SectionTitle>Progress</SectionTitle>
+      <ol className="space-y-4">
+        {steps.map((step) => (
+          <li key={step.label} className="flex gap-3">
+            <span
+              className={cx(
+                "mt-0.5 grid size-5 shrink-0 place-items-center rounded-full",
+                step.done ? "bg-ok text-white" : "border-line border-2 border-dashed",
+              )}
+            >
+              {step.done && <CheckIcon aria-hidden weight="bold" className="size-3" />}
+            </span>
+            <span>
+              <span className="text-ink-strong block text-sm font-medium">{step.label}</span>
+              {step.detail ? (
+                <span className="text-muted block text-xs">{step.detail}</span>
+              ) : (
+                <span className="text-muted block text-xs">
+                  Waiting <WaitingTime study={study} />
+                </span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </Card>
   );
 }

@@ -1,71 +1,117 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RouterProvider, createMemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
-import type { Meta, StudySummary, User } from "./lib/api";
+import type { Meta, Role, StudySummary, User } from "./lib/api";
 import { routes } from "./router";
+
+const ORG = {
+  id: "org-1",
+  name: "Arogya Multispeciality Hospital",
+  short_name: "Arogya Hospital",
+  kind: "hospital" as const,
+  city: "Noida",
+};
 
 const META: Meta = {
   analysis_types: [
     {
-      id: "brain_tumor",
-      name: "Brain tumor",
-      modality: "MRI",
-      description: "Four classes.",
-      labels: ["Glioma"],
+      id: "chest_xray",
+      name: "Pneumonia screening",
+      modality: "Chest X-ray",
+      description: "Pneumonia.",
+      labels: ["Normal", "Pneumonia"],
     },
   ],
   max_upload_mb: 10,
+  tat_targets_minutes: { stat: 60, urgent: 240, routine: 1440 },
   chain: {
     chain_id: 31337,
     contract_address: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
     explorer_url: null,
   },
-  demo_accounts: [
-    {
-      role: "patient",
-      name: "Priya Sharma",
-      email: "priya.sharma@medichain.example",
-      password: "medichain-demo",
-      description: "Owns her records.",
-    },
-    {
-      role: "clinician",
-      name: "Dr. Ananya Rao",
-      email: "ananya.rao@medichain.example",
-      password: "medichain-demo",
-      description: "Signs reports.",
-    },
-  ],
+  demo: {
+    password: "medichain-demo",
+    workspace: ORG,
+    personas: [
+      {
+        role: "technician",
+        name: "Rahul Verma",
+        email: "rahul.verma@arogya.example",
+        title: "Radiographer",
+        description: "Registers patients.",
+      },
+      {
+        role: "radiologist",
+        name: "Dr. Ananya Rao",
+        email: "ananya.rao@arogya.example",
+        title: "Consultant Radiologist",
+        description: "Reports the worklist.",
+      },
+      {
+        role: "doctor",
+        name: "Dr. Arjun Mehta",
+        email: "arjun.mehta@arogya.example",
+        title: "Pulmonologist",
+        description: "Gets reports.",
+      },
+    ],
+  },
 };
 
-const user = (role: User["role"], name: string): User => ({
+const user = (role: Role, name: string): User => ({
   id: `${role}-1`,
   name,
   role,
   title: null,
   reference: "MC-1234ABCD",
-  email: `${role}@medichain.example`,
-  date_of_birth: role === "patient" ? "1979-03-14" : null,
-  wallet_address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+  email: `${role}@arogya.example`,
+  phone: null,
+  qualification: null,
+  registration_number: null,
+  site: null,
+  wallet_address: null,
   is_active: true,
-  created_at: "2026-10-01T00:00:00Z",
+  created_at: "2026-11-01T00:00:00Z",
   last_login_at: null,
+  organization: ORG,
 });
 
 const STUDY: StudySummary = {
   id: "study-1",
+  accession: "ACC-261118-0001",
+  status: "draft",
+  priority: "stat",
+  analysis_type: "chest_xray",
+  analysis_name: "Pneumonia screening",
+  modality: "Chest X-ray",
+  patient: { id: "p-1", name: "Aman Gupta", uhid: "AMH-26-000031", sex: "M", age: 54 },
+  site: { id: "s-1", name: "Main campus · Radiology", code: "MAIN" },
+  referred_by: "Dr. Arjun Mehta",
+  radiologist: null,
+  top_finding: "Pneumonia",
+  critical: false,
+  created_at: new Date(Date.now() - 14 * 60_000).toISOString(),
+  published_at: null,
+  turnaround_minutes: null,
+};
+
+const REPORTED: StudySummary = {
+  ...STUDY,
+  id: "study-2",
   status: "published",
-  analysis_type: "brain_tumor",
-  analysis_name: "Brain tumor screening",
-  modality: "MRI",
-  patient: user("patient", "Priya Sharma"),
-  clinician: user("clinician", "Dr. Ananya Rao"),
-  top_finding: "Glioma",
-  created_at: "2026-10-18T09:00:00Z",
-  published_at: "2026-10-18T09:05:00Z",
+  critical: true,
+  radiologist: {
+    id: "r-1",
+    name: "Dr. Ananya Rao",
+    role: "radiologist",
+    title: null,
+    reference: "MC-2",
+  },
+  published_at: new Date(Date.now() - 60 * 60_000).toISOString(),
+  turnaround_minutes: 30,
 };
 
 // Role pages are lazy-loaded; the first dynamic import can be slow in jsdom.
@@ -80,28 +126,40 @@ const json = (body: unknown, status = 200) =>
 function mockApi(signedIn: User | null) {
   let current = signedIn;
   const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-    const path = url.replace("/api/v1", "");
+    const path = url.replace("/api/v1", "").split("?")[0];
     if (path === "/meta") return json(META);
     if (path === "/auth/me")
       return current ? json(current) : json({ detail: "Please sign in." }, 401);
+    if (path === "/auth/logout") {
+      current = null;
+      return Promise.resolve(new Response(null, { status: 204 }));
+    }
     if (path === "/auth/login") {
       const { email } = JSON.parse(init?.body as string) as { email: string };
-      current = email.startsWith("ananya")
-        ? user("clinician", "Dr. Ananya Rao")
-        : user("patient", "Priya Sharma");
+      const persona = META.demo?.personas.find((p) => p.email === email);
+      current = persona ? user(persona.role, persona.name) : user("patient", "Priya Sharma");
       return json(current);
     }
-    if (path.startsWith("/studies")) return json([STUDY]);
-    if (path === "/sharing") return json([]);
-    if (path === "/patients") return json([]);
+    if (path === "/studies") {
+      if (current?.role === "doctor") return json([REPORTED]);
+      return json(url.includes("status=published") ? [] : [STUDY]);
+    }
+    if (path === "/sites") return json([]);
     if (path === "/verify") {
       return json({
         authentic: true,
         report_sha256: "ab".repeat(32),
         record_id: "0x" + "11".repeat(32),
-        published_at: "2026-10-18T09:05:00Z",
-        issuer: { name: "Dr. Ananya Rao", title: "Consultant radiologist" },
-        analysis_name: "Brain tumor screening",
+        published_at: "2026-11-18T09:05:00Z",
+        issuer: {
+          name: "Dr. Ananya Rao",
+          title: "Consultant Radiologist",
+          qualification: "MD (Radiodiagnosis)",
+          registration_number: "UPMC-21458",
+          organization: "Arogya Multispeciality Hospital",
+        },
+        analysis_name: "Pneumonia screening",
+        accession: "ACC-261118-0001",
         matches_expected_record: null,
       });
     }
@@ -123,41 +181,54 @@ function renderAt(path: string) {
 }
 
 describe("App", () => {
-  it("sends signed-out visitors to login, which offers demo accounts", async () => {
-    mockApi(null);
-    const router = renderAt("/records");
-
-    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe("/login");
-    expect(router.state.location.search).toBe("?next=%2Frecords");
-    expect(await screen.findByText("Priya Sharma")).toBeInTheDocument();
-  });
-
-  it("signs in with a demo account and lands on the role's home", async () => {
+  it("lets a visitor enter the demo as a radiologist from the landing page", async () => {
     const fetchMock = mockApi(null);
-    renderAt("/login");
+    const router = renderAt("/");
 
-    await screen.findByText("Priya Sharma"); // demo accounts arrive with /meta
-    const [, patientDemo] = screen.getAllByRole("button", { name: "Sign in" });
-    await userEvent.click(patientDemo!);
+    expect(
+      await screen.findByRole("heading", { name: /patients and doctors can trust/ }),
+    ).toBeInTheDocument();
+    const demo = screen.getByRole("heading", { name: /Pick a role/ }).closest("section")!;
+    await userEvent.click(within(demo).getByRole("button", { name: /Dr. Ananya Rao/ }));
 
-    expect(await screen.findByRole("heading", { name: "Your records" }, SLOW)).toBeInTheDocument();
-    expect(await screen.findByText("Glioma")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Worklist" }, SLOW)).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/worklist");
+    expect(await screen.findByText("Aman Gupta")).toBeInTheDocument();
     const login = fetchMock.mock.calls.find(([url]) => url.endsWith("/auth/login"));
     expect(JSON.parse(login?.[1]?.body as string)).toEqual({
-      email: "priya.sharma@medichain.example",
+      email: "ananya.rao@arogya.example",
       password: "medichain-demo",
     });
   });
 
-  it("keeps each role on its own pages", async () => {
-    mockApi(user("clinician", "Dr. Ananya Rao"));
-    const router = renderAt("/records");
+  it("sends signed-out visitors to sign-in, which offers the demo roles", async () => {
+    mockApi(null);
+    const router = renderAt("/worklist");
 
-    expect(
-      await screen.findByRole("heading", { name: /Good to see you/ }, SLOW),
-    ).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe("/worklist");
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/login");
+    expect(router.state.location.search).toBe("?next=%2Fworklist");
+    expect(await screen.findByText("Rahul Verma")).toBeInTheDocument();
+  });
+
+  it("keeps each role on its own pages", async () => {
+    mockApi(user("technician", "Rahul Verma"));
+    const router = renderAt("/worklist");
+
+    expect(await screen.findByRole("heading", { name: "Today" }, SLOW)).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/desk");
+  });
+
+  it("shows a referring doctor their critical findings first", async () => {
+    mockApi(user("doctor", "Dr. Arjun Mehta"));
+    renderAt("/reports");
+
+    const alerts = await screen.findByRole(
+      "heading",
+      { name: /Critical findings this week/ },
+      SLOW,
+    );
+    expect(within(alerts.closest("section")!).getByText("Aman Gupta")).toBeInTheDocument();
   });
 
   it("verifies a report without signing in", async () => {
@@ -171,6 +242,9 @@ describe("App", () => {
     );
 
     expect(await screen.findByRole("heading", { name: "Authentic report" })).toBeInTheDocument();
-    expect(screen.getByText("Dr. Ananya Rao, Consultant radiologist")).toBeInTheDocument();
+    expect(
+      screen.getByText("Dr. Ananya Rao, MD (Radiodiagnosis), Consultant Radiologist"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Arogya Multispeciality Hospital")).toBeInTheDocument();
   });
 });

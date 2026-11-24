@@ -26,7 +26,7 @@ export function SharingPage() {
   const team = useQuery({ queryKey: ["care-team"], queryFn: api.careTeam });
   const directory = useQuery({
     queryKey: ["clinicians", term],
-    queryFn: () => api.searchClinicians(term),
+    queryFn: () => api.clinicians({ q: term }),
     placeholderData: keepPreviousData,
   });
 
@@ -44,7 +44,7 @@ export function SharingPage() {
     <>
       <PageHeader
         title="Sharing"
-        description="Choose which clinicians can open your records. Each change is a consent you sign on-chain, and you can withdraw it at any time."
+        description="Choose which doctors can open your records. Each change is a consent recorded on a tamper-evident ledger, and you can withdraw it at any time."
       />
       <div className="grid items-start gap-6 lg:grid-cols-2">
         <Card>
@@ -53,7 +53,7 @@ export function SharingPage() {
           {team.error && <PageError error={team.error} onRetry={() => void team.refetch()} />}
           {team.data?.length === 0 && (
             <EmptyState title="Not shared with anyone">
-              Only the clinician who reported each study can open it.
+              Only your radiologist and referring doctor can open each report.
             </EmptyState>
           )}
           {team.data && team.data.length > 0 && (
@@ -61,7 +61,7 @@ export function SharingPage() {
               {team.data.map(({ clinician, active }) => (
                 <li key={clinician.id} className="flex items-center gap-3 py-3">
                   <div className="min-w-0 flex-1">
-                    <PersonLine name={clinician.name} detail={clinician.title ?? "Clinician"} />
+                    <PersonLine name={clinician.name} detail={clinician.title ?? "Doctor"} />
                   </div>
                   {!active && <Badge tone="warn">Inactive</Badge>}
                   <ConfirmButton
@@ -78,19 +78,20 @@ export function SharingPage() {
           <div className="mt-4 space-y-3">
             <ErrorAlert error={unshare.error} />
             {unshare.isSuccess && (
-              <Alert tone="success">Access removed. The change is recorded on-chain.</Alert>
+              <Alert tone="success">Access removed. The change is recorded on the ledger.</Alert>
             )}
           </div>
           <p className="text-muted border-line mt-6 border-t pt-4 text-xs leading-relaxed">
-            Sharing gives a clinician access to all your signed records. The clinician who reported
-            a study can always open that study while their account is active.
+            Sharing gives a doctor access to all your signed reports at this hospital. The
+            radiologist who signed a report, and the doctor who referred you for it, can always open
+            that report while their account is active.
           </p>
         </Card>
 
         <Card>
-          <SectionTitle>Add a clinician</SectionTitle>
+          <SectionTitle>Add a doctor</SectionTitle>
           <label htmlFor="clinician-search" className="sr-only">
-            Search clinicians
+            Search doctors
           </label>
           <div className="relative">
             <MagnifyingGlassIcon
@@ -112,7 +113,7 @@ export function SharingPage() {
               return (
                 <li key={clinician.id} className="flex items-center gap-3 py-3">
                   <div className="min-w-0 flex-1">
-                    <PersonLine name={clinician.name} detail={clinician.title ?? "Clinician"} />
+                    <PersonLine name={clinician.name} detail={clinician.title ?? "Doctor"} />
                   </div>
                   {shared ? (
                     <Badge tone="ok">Has access</Badge>
@@ -132,7 +133,7 @@ export function SharingPage() {
             })}
           </ul>
           {directory.data?.length === 0 && (
-            <p className="text-muted py-3 text-sm">No clinicians match “{term}”.</p>
+            <p className="text-muted py-3 text-sm">No doctors match “{term}”.</p>
           )}
           <div className="mt-3">
             <ErrorAlert error={share.error} />

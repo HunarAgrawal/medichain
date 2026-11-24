@@ -1,15 +1,7 @@
-import { Link, Navigate, isRouteErrorResponse, useRouteError } from "react-router";
+import { Link, isRouteErrorResponse, useRouteError } from "react-router";
 
-import { homePath, useMe } from "../auth/session";
-import { PageLoading } from "./ui";
 import { buttonClass } from "./ui/classes";
 import { errorText } from "../lib/errors";
-
-export function HomeRedirect() {
-  const { data: user, isPending } = useMe();
-  if (isPending) return <PageLoading />;
-  return <Navigate to={user ? homePath(user.role) : "/login"} replace />;
-}
 
 export function NotFound({
   message = "This page does not exist or you do not have access to it.",

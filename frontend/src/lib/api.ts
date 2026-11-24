@@ -2,10 +2,48 @@
 
 const BASE = "/api/v1";
 
-export type Role = "patient" | "clinician" | "admin";
+export type Role = "admin" | "radiologist" | "technician" | "doctor" | "patient";
+export type StaffRole = Exclude<Role, "patient">;
+export type OrgKind = "hospital" | "imaging_centre" | "teleradiology";
+export type SiteKind = "radiology_department" | "imaging_centre" | "partner";
+export type Sex = "F" | "M" | "O";
+export type Priority = "routine" | "urgent" | "stat";
 export type AnalysisTypeId = "brain_tumor" | "chest_xray";
 export type StudyStatus = "draft" | "published";
 export type FileKind = "scan" | "report" | "heatmap";
+
+export interface OrgSummary {
+  id: string;
+  name: string;
+  short_name: string;
+  kind: OrgKind;
+  city: string | null;
+}
+
+export interface Organization extends OrgSummary {
+  department: string;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  accreditation: string | null;
+  uhid_prefix: string;
+  timezone: string;
+}
+
+export interface Site {
+  id: string;
+  name: string;
+  code: string;
+  kind: SiteKind;
+  city: string | null;
+  is_active: boolean;
+}
+
+export interface SiteRef {
+  id: string;
+  name: string;
+  code: string;
+}
 
 export interface UserSummary {
   id: string;
@@ -16,12 +54,43 @@ export interface UserSummary {
 }
 
 export interface User extends UserSummary {
-  email: string;
-  date_of_birth: string | null;
+  email: string | null;
+  phone: string | null;
+  qualification: string | null;
+  registration_number: string | null;
+  site: Site | null;
   wallet_address: string | null;
   is_active: boolean;
   created_at: string;
   last_login_at: string | null;
+  organization: OrgSummary;
+}
+
+export interface PatientSummary {
+  id: string;
+  name: string;
+  uhid: string;
+  sex: Sex | null;
+  age: number | null;
+}
+
+export interface Patient extends PatientSummary {
+  date_of_birth: string | null;
+  phone: string | null;
+  abha_number: string | null;
+  email: string | null;
+  portal_access: boolean;
+  created_at: string;
+  studies: number;
+  last_study_at: string | null;
+}
+
+export interface NewPatient {
+  name: string;
+  sex: Sex;
+  date_of_birth: string;
+  phone?: string;
+  abha_number?: string;
 }
 
 export interface AnalysisType {
@@ -32,19 +101,20 @@ export interface AnalysisType {
   labels: string[];
 }
 
-export interface DemoAccount {
+export interface DemoPersona {
   role: Role;
   name: string;
   email: string;
-  password: string;
+  title: string | null;
   description: string;
 }
 
 export interface Meta {
   analysis_types: AnalysisType[];
   max_upload_mb: number;
+  tat_targets_minutes: Record<Priority, number>;
   chain: { chain_id: number; contract_address: string; explorer_url: string | null };
-  demo_accounts: DemoAccount[] | null;
+  demo: { password: string; workspace: OrgSummary | null; personas: DemoPersona[] } | null;
 }
 
 export interface Prediction {
@@ -63,33 +133,66 @@ export interface RecordInfo {
 
 export interface StudySummary {
   id: string;
+  accession: string;
   status: StudyStatus;
+  priority: Priority;
   analysis_type: AnalysisTypeId;
   analysis_name: string;
   modality: string;
-  patient: UserSummary;
-  clinician: UserSummary;
+  patient: PatientSummary;
+  site: SiteRef;
+  referred_by: string | null;
+  radiologist: UserSummary | null;
   top_finding: string | null;
+  critical: boolean;
   created_at: string;
   published_at: string | null;
+  turnaround_minutes: number | null;
 }
 
 export interface StudyDetail extends StudySummary {
-  model_id: string;
+  access: "full" | "status";
+  indication: string | null;
+  created_by: UserSummary;
+  referrer: UserSummary | null;
+  model_id: string | null;
   predictions: Prediction[];
   final_finding: string | null;
+  findings: string | null;
   impression: string | null;
   ai_agrees: boolean | null;
   has_heatmap: boolean;
   record: RecordInfo | null;
 }
 
-export interface PatientOverview {
-  patient: UserSummary;
-  date_of_birth: string | null;
-  shared_with_me: boolean;
-  published_studies: number;
-  last_study_at: string | null;
+export interface StudyQuery {
+  status?: StudyStatus;
+  priority?: Priority;
+  site_id?: string;
+  patient_id?: string;
+  critical?: boolean;
+  since?: string;
+  q?: string;
+  order?: "recent" | "worklist";
+  limit?: number;
+}
+
+export interface NewStudy {
+  patient_id: string;
+  analysis_type: AnalysisTypeId;
+  priority: Priority;
+  site_id?: string;
+  indication?: string;
+  referrer_id?: string;
+  referrer_name?: string;
+  file: File;
+}
+
+export interface Report {
+  final_finding: string;
+  findings?: string;
+  impression: string;
+  critical: boolean;
 }
 
 export interface CareTeamMember {
@@ -113,19 +216,71 @@ export interface ServiceCheck {
   detail: string;
 }
 
-export interface AdminOverview {
-  users: Record<Role, number>;
-  studies: Record<StudyStatus, number>;
+export interface Dashboard {
+  period_days: number;
+  kpis: {
+    studies_today: number;
+    reported_today: number;
+    awaiting_report: number;
+    stat_waiting: number;
+    median_tat_minutes: number | null;
+    within_target_pct: number | null;
+    ai_agreement_pct: number | null;
+    critical_findings: number;
+    studies_in_period: number;
+  };
+  daily: { day: string; by_modality: Record<string, number>; reported: number }[];
+  tat_by_priority: {
+    priority: Priority;
+    reported: number;
+    median_minutes: number | null;
+    target_minutes: number;
+    within_target_pct: number | null;
+  }[];
+  sites: { site: SiteRef; studies: number; awaiting: number; median_tat_minutes: number | null }[];
+  radiologists: { radiologist: UserSummary; reports: number; median_tat_minutes: number | null }[];
+  staff: Record<StaffRole, number>;
+  patients: number;
   services: Record<string, ServiceCheck>;
 }
 
-export interface NewUser {
+export interface NewStaff {
   name: string;
   email: string;
-  role: Role;
+  role: StaffRole;
   title?: string;
-  date_of_birth?: string;
+  qualification?: string;
+  registration_number?: string;
+  site_id?: string;
+  phone?: string;
   password?: string;
+}
+
+export type OrganizationUpdate = Partial<
+  Pick<
+    Organization,
+    | "name"
+    | "short_name"
+    | "kind"
+    | "department"
+    | "address"
+    | "city"
+    | "phone"
+    | "email"
+    | "accreditation"
+  >
+>;
+
+export interface NewSite {
+  name: string;
+  code: string;
+  kind: SiteKind;
+  city?: string;
+}
+
+export interface DemoSamples {
+  attribution: string;
+  samples: { file: string; analysis_type: AnalysisTypeId; label: string }[];
 }
 
 export interface VerifyResult {
@@ -133,8 +288,15 @@ export interface VerifyResult {
   report_sha256: string;
   record_id: string | null;
   published_at: string | null;
-  issuer: { name: string; title: string | null } | null;
+  issuer: {
+    name: string;
+    title: string | null;
+    qualification: string | null;
+    registration_number: string | null;
+    organization: string | null;
+  } | null;
   analysis_name: string | null;
+  accession: string | null;
   matches_expected_record: boolean | null;
 }
 
@@ -187,7 +349,7 @@ const json = (method: string, body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 
-const query = (params: Record<string, string | number | undefined | null>) => {
+const query = (params: Record<string, string | number | boolean | undefined | null>) => {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== "") search.set(key, String(value));
@@ -196,9 +358,11 @@ const query = (params: Record<string, string | number | undefined | null>) => {
   return text ? `?${text}` : "";
 };
 
+const id = encodeURIComponent;
+
 /** URL of a study file. Same-origin, so the session cookie authorizes it in <img> and links. */
 export const fileUrl = (studyId: string, kind: FileKind) =>
-  `${BASE}/studies/${encodeURIComponent(studyId)}/files/${kind}`;
+  `${BASE}/studies/${id(studyId)}/files/${kind}`;
 
 export const api = {
   meta: () => request<Meta>("/meta"),
@@ -210,45 +374,65 @@ export const api = {
   changePassword: (current_password: string, new_password: string) =>
     request<User>("/auth/password", json("POST", { current_password, new_password })),
 
-  studies: (params: { status?: StudyStatus; patient_id?: string; limit?: number } = {}) =>
-    request<StudySummary[]>(`/studies${query(params)}`),
-  study: (id: string) => request<StudyDetail>(`/studies/${encodeURIComponent(id)}`),
-  createStudy: (patientId: string, analysisType: AnalysisTypeId, file: File) => {
+  patients: (q = "", limit = 25) => request<Patient[]>(`/patients${query({ q, limit })}`),
+  patient: (patientId: string) => request<Patient>(`/patients/${id(patientId)}`),
+  registerPatient: (body: NewPatient) => request<Patient>("/patients", json("POST", body)),
+  enablePortal: (patientId: string, email: string) =>
+    request<{ patient: Patient; temporary_password: string }>(
+      `/patients/${id(patientId)}/portal`,
+      json("POST", { email }),
+    ),
+
+  studies: (params: StudyQuery = {}) => request<StudySummary[]>(`/studies${query({ ...params })}`),
+  study: (studyId: string) => request<StudyDetail>(`/studies/${id(studyId)}`),
+  createStudy: ({ file, ...fields }: NewStudy) => {
     const form = new FormData();
-    form.append("patient_id", patientId);
-    form.append("analysis_type", analysisType);
+    for (const [key, value] of Object.entries(fields)) {
+      if (value) form.append(key, value);
+    }
     form.append("file", file);
     return request<StudyDetail>("/studies", { method: "POST", body: form });
   },
-  publishStudy: (id: string, final_finding: string, impression: string) =>
-    request<StudyDetail>(
-      `/studies/${encodeURIComponent(id)}/publish`,
-      json("POST", { final_finding, impression }),
-    ),
-  discardStudy: (id: string) =>
-    request<void>(`/studies/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  studyActivity: (id: string) =>
-    request<AuditEvent[]>(`/studies/${encodeURIComponent(id)}/activity`),
+  publishStudy: (studyId: string, report: Report) =>
+    request<StudyDetail>(`/studies/${id(studyId)}/publish`, json("POST", report)),
+  discardStudy: (studyId: string) => request<void>(`/studies/${id(studyId)}`, { method: "DELETE" }),
+  studyActivity: (studyId: string) => request<AuditEvent[]>(`/studies/${id(studyId)}/activity`),
 
   careTeam: () => request<CareTeamMember[]>("/sharing"),
   share: (clinician_id: string) =>
     request<CareTeamMember[]>("/sharing", json("POST", { clinician_id })),
   unshare: (clinicianId: string) =>
-    request<void>(`/sharing/${encodeURIComponent(clinicianId)}`, { method: "DELETE" }),
-  searchClinicians: (q: string) => request<UserSummary[]>(`/directory/clinicians${query({ q })}`),
-  searchPatients: (q: string) => request<PatientOverview[]>(`/directory/patients${query({ q })}`),
-  myPatients: () => request<PatientOverview[]>("/patients"),
+    request<void>(`/sharing/${id(clinicianId)}`, { method: "DELETE" }),
+  clinicians: (params: { q?: string; role?: "doctor" | "radiologist" } = {}) =>
+    request<UserSummary[]>(`/directory/clinicians${query(params)}`),
+  sites: () => request<Site[]>("/sites"),
   activity: () => request<AuditEvent[]>("/activity"),
 
-  adminOverview: () => request<AdminOverview>("/admin/overview"),
-  adminUsers: (params: { role?: Role; q?: string } = {}) =>
+  dashboard: (days = 30) => request<Dashboard>(`/admin/dashboard${query({ days })}`),
+  staff: (params: { role?: StaffRole; q?: string } = {}) =>
     request<User[]>(`/admin/users${query(params)}`),
-  createUser: (body: NewUser) =>
+  createStaff: (body: NewStaff) =>
     request<{ user: User; temporary_password: string | null }>("/admin/users", json("POST", body)),
-  setUserActive: (id: string, is_active: boolean) =>
-    request<User>(`/admin/users/${encodeURIComponent(id)}`, json("PATCH", { is_active })),
+  setUserActive: (userId: string, is_active: boolean) =>
+    request<User>(`/admin/users/${id(userId)}`, json("PATCH", { is_active })),
+  organization: () => request<Organization>("/admin/organization"),
+  updateOrganization: (body: OrganizationUpdate) =>
+    request<Organization>("/admin/organization", json("PATCH", body)),
+  adminSites: () => request<Site[]>("/admin/sites"),
+  createSite: (body: NewSite) => request<Site>("/admin/sites", json("POST", body)),
   auditLog: (params: { action?: string; limit?: number; offset?: number } = {}) =>
     request<AuditEvent[]>(`/admin/audit${query(params)}`),
+
+  demoSamples: () => request<DemoSamples>("/demo/samples"),
+  /** Download a demo sample scan as a File, ready for the scan picker. */
+  demoSampleFile: async (name: string): Promise<File> => {
+    const response = await fetch(`${BASE}/demo/samples/${id(name)}`, {
+      credentials: "same-origin",
+    });
+    if (!response.ok) throw new ApiError(response.status, await errorMessage(response));
+    const blob = await response.blob();
+    return new File([blob], name, { type: blob.type });
+  },
 
   verify: (file: File, recordId?: string | null) => {
     const form = new FormData();

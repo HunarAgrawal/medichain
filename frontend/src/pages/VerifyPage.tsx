@@ -35,7 +35,7 @@ export function VerifyPage() {
     <div className="mx-auto max-w-3xl">
       <PageHeader
         title="Verify a report"
-        description="Check that a Medichain report is genuine and unaltered. The file is fingerprinted and compared with the registry; it is not stored."
+        description="Check that an imaging report is genuine and unaltered. The file is fingerprinted and compared with the registry; it is not stored."
       />
       <div className="space-y-6">
         {recordId && (
@@ -139,7 +139,7 @@ function VerifyOutcome({ result }: { result: VerifyResult }) {
           <p className="text-muted mt-1 text-sm">
             {mismatch
               ? "This report is genuine, but it belongs to a different record than the QR code you followed."
-              : "This exact file was signed and registered by a verified clinician. It has not been altered."}
+              : "This exact file was signed and registered by a verified radiologist. It has not been altered."}
           </p>
         </div>
       </div>
@@ -150,12 +150,20 @@ function VerifyOutcome({ result }: { result: VerifyResult }) {
               ? [
                   {
                     label: "Signed by",
-                    value:
-                      result.issuer.name + (result.issuer.title ? `, ${result.issuer.title}` : ""),
+                    value: [result.issuer.name, result.issuer.qualification, result.issuer.title]
+                      .filter(Boolean)
+                      .join(", "),
                   },
+                  ...(result.issuer.registration_number
+                    ? [{ label: "Registration", value: result.issuer.registration_number }]
+                    : []),
+                  ...(result.issuer.organization
+                    ? [{ label: "Hospital", value: result.issuer.organization }]
+                    : []),
                 ]
               : []),
             ...(result.analysis_name ? [{ label: "Study", value: result.analysis_name }] : []),
+            ...(result.accession ? [{ label: "Accession", value: result.accession }] : []),
             ...(result.published_at
               ? [{ label: "Registered", value: formatDateTime(result.published_at) }]
               : []),
