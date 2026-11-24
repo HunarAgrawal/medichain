@@ -1,0 +1,26 @@
+# Never ship secrets, local data or build output into an image.
+**/.env
+**/.env.*
+!**/.env.example
+backend/data/
+data/
+**/node_modules/
+**/.venv/
+.venv/
+**/__pycache__/
+**/*.egg-info/
+**/.pytest_cache/
+**/.ruff_cache/
+frontend/dist/
+contracts/artifacts/
+contracts/cache/
+contracts/types/
+contracts/ignition/deployments/
+.git/
+.github/
+.claude/
+.agents/
+CLAUDE.md
+skills-lock.json
+docs/
+**/.DS_Store

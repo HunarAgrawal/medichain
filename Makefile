@@ -3,10 +3,14 @@ VENV := backend/.venv
 PY := $(VENV)/bin/python
 
 .DEFAULT_GOAL := help
-.PHONY: help setup env ipfs chain deploy seed fresh backend frontend test lint format
+.PHONY: help demo setup env ipfs chain deploy seed fresh backend frontend test lint format
 
 help: ## Show available commands
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  \033[1m%-10s\033[0m %s\n", $$1, $$2}'
+
+demo: ## Build and run the complete demo in Docker on http://localhost:3000
+	docker build -t medichain-demo .
+	docker run --rm -p 3000:7860 --name medichain-demo medichain-demo
 
 setup: $(VENV) env ## Install all dependencies and create backend/.env
 	cd frontend && npm ci
@@ -29,20 +33,20 @@ backend/.env:
 	pathlib.Path('backend/.env').write_text(text)"
 	@echo "Created backend/.env with new ENCRYPTION_KEY and WALLET_ENCRYPTION_KEY"
 
-ipfs: ## Start a local IPFS (Kubo) node in Docker
+ipfs: ## Optional: start a local IPFS (Kubo) node in Docker (STORAGE_PROVIDER=kubo)
 	docker compose up -d ipfs
 
-chain: ## Run a local Hardhat chain (foreground)
-	cd contracts && npm run node
+chain: ## Run the local chain (foreground); its clock starts 45 days ago for the demo history
+	cd contracts && CHAIN_START_DAYS_AGO=45 npm run node
 
 deploy: ## Deploy the registry contract to the local chain
 	cd contracts && npm run deploy:local -- --reset
 
-seed: ## Create demo accounts and sample studies (needs chain, contract and IPFS)
+seed: ## Create the demo hospital, staff, patients and a month of studies (needs chain + contract)
 	cd backend && .venv/bin/python -m app.seed
 
 fresh: deploy ## After restarting the chain: redeploy, reset the local database, reseed
-	rm -f backend/data/medichain.db backend/data/medichain.db-wal backend/data/medichain.db-shm
+	rm -rf backend/data/medichain.db backend/data/medichain.db-wal backend/data/medichain.db-shm backend/data/files
 	$(MAKE) seed
 
 backend: ## Run the API with auto-reload on :8000
