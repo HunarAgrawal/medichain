@@ -7,7 +7,7 @@ from functools import cached_property
 from typing import Annotated, Literal
 
 from eth_utils import is_address, to_checksum_address
-from pydantic import SecretStr, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # Hardhat's first development account: public, so it may only ever touch a local chain.
@@ -48,8 +48,11 @@ class Settings(BaseSettings):
     encryption_key: SecretStr
     wallet_encryption_key: SecretStr
 
-    # IPFS
-    ipfs_provider: Literal["kubo", "pinata"] = "kubo"
+    # File storage: IPFS (Kubo or Pinata), or a local directory for single-server installs.
+    storage_provider: Literal["kubo", "pinata", "local"] = Field(
+        "kubo", validation_alias=AliasChoices("storage_provider", "ipfs_provider")
+    )
+    storage_dir: str = "./data/files"
     kubo_api_url: str = "http://127.0.0.1:5001"
     pinata_jwt: SecretStr | None = None
     pinata_gateway_url: str = "https://gateway.pinata.cloud"
@@ -69,6 +72,9 @@ class Settings(BaseSettings):
 
     # Uploads
     max_upload_mb: int = 10
+
+    # Serve the built web app from this directory (single-container installs). Empty: API only.
+    static_dir: str | None = None
 
     @field_validator("cors_origins", mode="before")
     @classmethod

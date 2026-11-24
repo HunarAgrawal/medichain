@@ -14,7 +14,7 @@ import {
 } from "../components/ui";
 import { inputClass } from "../components/ui/classes";
 import { api } from "../lib/api";
-import { age, formatDate, formatDateTime, shortHash } from "../lib/format";
+import { formatDateTime, shortHash } from "../lib/format";
 import { explorerAddressUrl, useMeta } from "../lib/queries";
 import { ROLE_LABEL } from "../lib/roles";
 
@@ -51,18 +51,23 @@ export function AccountPage() {
           <DetailList
             items={[
               { label: "Name", value: user.name },
-              { label: "Email", value: user.email },
+              ...(user.email ? [{ label: "Email", value: user.email }] : []),
               { label: "Role", value: ROLE_LABEL[user.role] },
-              ...(user.title ? [{ label: "Title", value: user.title }] : []),
-              { label: "Reference", value: user.reference, mono: true, copy: true },
-              ...(user.date_of_birth
-                ? [
-                    {
-                      label: "Date of birth",
-                      value: `${formatDate(user.date_of_birth)} (age ${age(user.date_of_birth)})`,
-                    },
-                  ]
+              { label: "Workspace", value: user.organization.name },
+              ...(user.site ? [{ label: "Site", value: user.site.name }] : []),
+              ...(user.title ? [{ label: "Designation", value: user.title }] : []),
+              ...(user.qualification
+                ? [{ label: "Qualification", value: user.qualification }]
                 : []),
+              ...(user.registration_number
+                ? [{ label: "Registration", value: user.registration_number }]
+                : []),
+              {
+                label: user.role === "patient" ? "UHID" : "Reference",
+                value: user.reference,
+                mono: true,
+                copy: true,
+              },
               ...(user.last_login_at
                 ? [{ label: "Last sign-in", value: formatDateTime(user.last_login_at) }]
                 : []),
@@ -74,7 +79,7 @@ export function AccountPage() {
               <p className="text-muted mb-3 text-sm">
                 {user.role === "patient"
                   ? "Your records and sharing consents are registered to this address. Medichain holds its key for you, encrypted."
-                  : "Reports you sign are registered from this address. Medichain holds its key for you, encrypted."}
+                  : "Reports you sign, or are referred, are registered to this address. Medichain holds its key for you, encrypted."}
               </p>
               <DetailList
                 items={[

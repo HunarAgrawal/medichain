@@ -1,30 +1,22 @@
-"""Sharing (patients), the clinician directory and patient lists (clinicians), and activity."""
+"""Sharing (patients), the directory of doctors and sites, and activity feeds."""
 
-from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Query, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 
 from app import workflows
-from app.deps import (
-    CareUser,
-    ClinicianUser,
-    DbDep,
-    PatientUser,
-    ServicesDep,
-    enforce_rate_limit,
-)
-from app.models import AuditEvent, Role, Study, StudyStatus, User, UTCDateTime
-from app.presenters import audit_event, user_summary
-from app.schemas import AuditEventOut, CareTeamMember, PatientOverview, ShareRequest, UserSummary
+from app.deps import CurrentUser, DbDep, PatientUser, ServicesDep, StudyViewer, enforce_rate_limit
+from app.models import CLINICIAN_ROLES, AuditEvent, Role, Site, Study, User
+from app.presenters import audit_event, site_out, user_summary
+from app.schemas import AuditEventOut, CareTeamMember, ShareRequest, SiteOut, UserSummary
 
 router = APIRouter(tags=["people"])
 
 Search = Annotated[str, Query(max_length=100)]
 
 
-# Sharing: a patient's care team is the set of clinicians they granted on-chain.
+# Sharing: a patient's care team is the set of doctors they granted on-chain.
 
 
 @router.get("/sharing")
@@ -38,7 +30,7 @@ async def share_records(
     body: ShareRequest, patient: PatientUser, svc: ServicesDep, db: DbDep
 ) -> list[CareTeamMember]:
     enforce_rate_limit(svc.limits.chain_write, patient.id)
-    clinician = await workflows.find_clinician(db, body.clinician_id)
+    clinician = await workflows.find_clinician(db, patient.org_id, body.clinician_id)
     await workflows.grant_access(svc, db, patient=patient, clinician=clinician)
     return await get_care_team(patient, svc, db)
 
@@ -49,8 +41,8 @@ async def stop_sharing(
 ) -> None:
     enforce_rate_limit(svc.limits.chain_write, patient.id)
     clinician = await db.get(User, clinician_id)
-    if clinician is None or clinician.role is not Role.CLINICIAN:
-        raise workflows.not_found("Clinician")
+    if clinician is None or clinician.role not in CLINICIAN_ROLES:
+        raise workflows.not_found("Doctor")
     await workflows.revoke_access(svc, db, patient=patient, clinician=clinician)
 
 
@@ -58,68 +50,27 @@ async def stop_sharing(
 
 
 @router.get("/directory/clinicians")
-async def search_clinicians(_: CareUser, db: DbDep, q: Search = "") -> list[UserSummary]:
-    query = select(User).where(User.role == Role.CLINICIAN, User.is_active.is_(True))
+async def search_clinicians(
+    user: StudyViewer, db: DbDep, q: Search = "", role: Role | None = None
+) -> list[UserSummary]:
+    """Doctors, radiologists and pathologists in the organization (for sharing and referrals)."""
+    roles = [role] if role in CLINICIAN_ROLES else list(CLINICIAN_ROLES)
+    query = select(User).where(
+        User.org_id == user.org_id, User.role.in_(roles), User.is_active.is_(True)
+    )
     if term := q.strip():
         like = f"%{term}%"
         query = query.where(or_(User.name.ilike(like), User.title.ilike(like)))
-    users = await db.scalars(query.order_by(User.name).limit(20))
-    return [user_summary(u) for u in users.all()]
+    users = await db.scalars(query.order_by(User.name).limit(50))
+    return [user_summary(u) for u in users.unique().all()]
 
 
-@router.get("/directory/patients")
-async def search_patients(_: ClinicianUser, db: DbDep, q: Search = "") -> list[PatientOverview]:
-    query = select(User).where(User.role == Role.PATIENT, User.is_active.is_(True))
-    if term := q.strip():
-        query = query.where(User.name.ilike(f"%{term}%"))
-    users = await db.scalars(query.order_by(User.name).limit(20))
-    return [
-        PatientOverview(
-            patient=user_summary(u),
-            date_of_birth=u.date_of_birth,
-            shared_with_me=False,
-            published_studies=0,
-            last_study_at=None,
-        )
-        for u in users.all()
-    ]
-
-
-@router.get("/patients")
-async def my_patients(
-    clinician: ClinicianUser, svc: ServicesDep, db: DbDep
-) -> list[PatientOverview]:
-    """Patients who shared their records with me, or whom I have reported on."""
-    shared = set(await svc.registry.patients_of(workflows.wallet(clinician)))
-    issued = select(Study.patient_id).where(Study.clinician_id == clinician.id)
-    patients = (
-        await db.scalars(
-            select(User).where(
-                User.role == Role.PATIENT,
-                or_(User.wallet_address.in_(shared), User.id.in_(issued)),
-            )
-        )
-    ).all()
-    overviews = []
-    for patient in patients:
-        is_shared = patient.wallet_address in shared
-        visible = select(func.count(), func.max(Study.published_at, type_=UTCDateTime())).where(
-            Study.patient_id == patient.id, Study.status == StudyStatus.PUBLISHED
-        )
-        if not is_shared:
-            visible = visible.where(Study.clinician_id == clinician.id)
-        count, last = (await db.execute(visible)).one()
-        overviews.append(
-            PatientOverview(
-                patient=user_summary(patient),
-                date_of_birth=patient.date_of_birth,
-                shared_with_me=is_shared,
-                published_studies=count,
-                last_study_at=last,
-            )
-        )
-    never = datetime.min.replace(tzinfo=UTC)
-    return sorted(overviews, key=lambda o: o.last_study_at or never, reverse=True)
+@router.get("/sites")
+async def list_sites(user: CurrentUser, db: DbDep) -> list[SiteOut]:
+    sites = await db.scalars(
+        select(Site).where(Site.org_id == user.org_id, Site.is_active.is_(True)).order_by(Site.name)
+    )
+    return [site_out(s) for s in sites.all()]
 
 
 # Activity: what happened to my records, or what I did.
@@ -127,7 +78,7 @@ async def my_patients(
 
 @router.get("/activity")
 async def my_activity(
-    user: CareUser, db: DbDep, limit: Annotated[int, Query(ge=1, le=100)] = 50
+    user: StudyViewer, db: DbDep, limit: Annotated[int, Query(ge=1, le=100)] = 50
 ) -> list[AuditEventOut]:
     if user.role is Role.PATIENT:
         my_studies = select(Study.id).where(Study.patient_id == user.id)

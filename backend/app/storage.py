@@ -1,8 +1,15 @@
-"""IPFS pinning and retrieval through a local Kubo node or Pinata."""
+"""Encrypted file storage: IPFS through a local Kubo node or Pinata, or a local directory.
 
+Every stored file is already sealed with AES-GCM, so the provider only ever sees ciphertext.
+"""
+
+import asyncio
+import hashlib
 import json
+import os
 import re
 from contextlib import AbstractAsyncContextManager
+from pathlib import Path
 from typing import Protocol
 
 import httpx
@@ -11,10 +18,11 @@ from app.config import Settings
 
 MAX_FETCH_BYTES = 64 * 1024 * 1024
 _CID = re.compile(r"Qm[1-9A-HJ-NP-Za-km-z]{44}|b[a-z2-7]{50,120}")
+_LOCAL_ID = re.compile(r"sha256-([0-9a-f]{64})")
 
 
 class StorageError(Exception):
-    """IPFS is unreachable or returned something unexpected."""
+    """Storage is unreachable or returned something unexpected."""
 
 
 def validate_cid(cid: str) -> str:
@@ -23,7 +31,7 @@ def validate_cid(cid: str) -> str:
     return cid
 
 
-class IpfsStorage(Protocol):
+class Storage(Protocol):
     async def add(self, data: bytes, filename: str) -> str: ...
 
     async def cat(self, cid: str) -> bytes: ...
@@ -102,8 +110,58 @@ class PinataStorage:
         return "Pinata authenticated"
 
 
-def create_storage(settings: Settings, client: httpx.AsyncClient) -> IpfsStorage:
-    if settings.ipfs_provider == "pinata":
+class LocalStorage:
+    """Content-addressed files in a local directory, for single-server and on-premises installs."""
+
+    def __init__(self, root: str) -> None:
+        self._root = Path(root)
+
+    async def add(self, data: bytes, filename: str) -> str:
+        digest = hashlib.sha256(data).hexdigest()
+        await asyncio.to_thread(self._write, digest, data)
+        return f"sha256-{digest}"
+
+    async def cat(self, cid: str) -> bytes:
+        match = _LOCAL_ID.fullmatch(cid)
+        if match is None:
+            raise StorageError(f"Invalid local file ID: {cid!r}")
+        path = self._path(match.group(1))
+        try:
+            if path.stat().st_size > MAX_FETCH_BYTES:
+                raise StorageError("Stored file exceeds the size limit")
+            return await asyncio.to_thread(path.read_bytes)
+        except OSError as exc:
+            raise StorageError(f"Local file unavailable: {exc}") from exc
+
+    async def ping(self) -> str:
+        try:
+            self._root.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise StorageError(f"Local storage unavailable: {exc}") from exc
+        if not os.access(self._root, os.W_OK):
+            raise StorageError("Local storage is not writable")
+        return "Local encrypted file store"
+
+    def _path(self, digest: str) -> Path:
+        return self._root / digest[:2] / digest
+
+    def _write(self, digest: str, data: bytes) -> None:
+        path = self._path(digest)
+        if path.exists():
+            return
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            partial = path.with_suffix(".partial")
+            partial.write_bytes(data)
+            partial.replace(path)
+        except OSError as exc:
+            raise StorageError(f"Local write failed: {exc}") from exc
+
+
+def create_storage(settings: Settings, client: httpx.AsyncClient) -> Storage:
+    if settings.storage_provider == "local":
+        return LocalStorage(settings.storage_dir)
+    if settings.storage_provider == "pinata":
         if settings.pinata_jwt is None:
             raise ValueError("PINATA_JWT is required when IPFS_PROVIDER=pinata")
         return PinataStorage(

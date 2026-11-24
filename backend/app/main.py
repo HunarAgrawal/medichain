@@ -4,11 +4,13 @@ import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
 from app.chain import ChainError
@@ -27,6 +29,12 @@ _SECURITY_HEADERS = {
     "Cache-Control": "no-store",
 }
 _API_CSP = "default-src 'none'; frame-ancestors 'none'"
+# The web app when served by the API (single-container installs): same-origin everything.
+_WEB_CSP = (
+    "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
+    "font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; "
+    "form-action 'self'; frame-ancestors 'none'"
+)
 _UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 # Browsers only send custom headers cross-origin after a CORS preflight we control, so
 # requiring one on state-changing requests blocks CSRF even if a cookie leaks cross-site.
@@ -58,14 +66,14 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
             await _check_chain(built)
             if settings.preload_models:
                 await run_in_threadpool(built.ml.preload)
-            logger.info("Medichain API ready (IPFS: %s)", settings.ipfs_provider)
+            logger.info("Medichain API ready (storage: %s)", settings.storage_provider)
             yield
             await built.db_engine.dispose()
 
     docs_enabled = settings.enable_docs
     app = FastAPI(
         title="Medichain API",
-        version="0.3.0",
+        version="0.4.0",
         lifespan=lifespan,
         docs_url="/docs" if docs_enabled else None,
         redoc_url=None,
@@ -107,7 +115,37 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
 
     register_error_handlers(app)
     app.include_router(api_router)
+    if settings.static_dir:
+        _serve_web_app(app, Path(settings.static_dir).resolve())
     return app
+
+
+def _serve_web_app(app: FastAPI, root: Path) -> None:
+    """Serve the built single-page app: hashed assets cached for a year, every other path
+    falls back to index.html so client-side routes work on reload."""
+    index = root / "index.html"
+    if not index.is_file():
+        raise RuntimeError(f"STATIC_DIR has no index.html: {root}")
+    cached = {"Cache-Control": "public, max-age=31536000, immutable"}
+
+    class _Assets(StaticFiles):
+        async def get_response(self, path: str, scope):  # type: ignore[no-untyped-def]
+            response = await super().get_response(path, scope)
+            response.headers.update(cached)
+            return response
+
+    app.mount("/assets", _Assets(directory=root / "assets"), name="assets")
+
+    @app.get("/{path:path}", include_in_schema=False)
+    async def web_app(path: str) -> FileResponse:
+        if path.startswith("api/"):
+            raise HTTPException(404, "Not found.")
+        candidate = (root / path).resolve()
+        if path and candidate.is_file() and root in candidate.parents:
+            return FileResponse(candidate, headers={"Content-Security-Policy": _WEB_CSP})
+        return FileResponse(
+            index, headers={"Cache-Control": "no-cache", "Content-Security-Policy": _WEB_CSP}
+        )
 
 
 async def _start(app: FastAPI, services: Services) -> None:

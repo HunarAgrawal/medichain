@@ -1,6 +1,10 @@
 import hardhatToolboxMochaEthersPlugin from "@nomicfoundation/hardhat-toolbox-mocha-ethers";
 import { configVariable, defineConfig } from "hardhat/config";
 
+// `npm run node` serves the devchain network. CHAIN_START_DAYS_AGO starts its clock in the past,
+// so seeded demo history is anchored on-chain at the dates it was signed (see backend/app/seed.py).
+const startDaysAgo = Number(process.env.CHAIN_START_DAYS_AGO ?? "0");
+
 export default defineConfig({
   plugins: [hardhatToolboxMochaEthersPlugin],
   solidity: {
@@ -13,6 +17,13 @@ export default defineConfig({
     },
   },
   networks: {
+    devchain: {
+      type: "edr-simulated",
+      chainType: "l1",
+      ...(startDaysAgo > 0
+        ? { initialDate: new Date(Date.now() - startDaysAgo * 86_400_000) }
+        : {}),
+    },
     localhost: {
       type: "http",
       chainType: "l1",

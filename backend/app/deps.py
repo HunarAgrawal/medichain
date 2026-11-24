@@ -47,9 +47,25 @@ def _require(*roles: Role):
 
 
 PatientUser = Annotated[User, Depends(_require(Role.PATIENT))]
-ClinicianUser = Annotated[User, Depends(_require(Role.CLINICIAN))]
+# Radiologists and pathologists sign reports, each for their own discipline.
+ReporterUser = Annotated[User, Depends(_require(Role.RADIOLOGIST, Role.PATHOLOGIST))]
 AdminUser = Annotated[User, Depends(_require(Role.ADMIN))]
-CareUser = Annotated[User, Depends(_require(Role.PATIENT, Role.CLINICIAN))]
+# Staff who register patients and acquire studies: technicians, and reporters acquiring studies in
+# their own discipline.
+AcquiringUser = Annotated[
+    User, Depends(_require(Role.TECHNICIAN, Role.RADIOLOGIST, Role.PATHOLOGIST))
+]
+# Staff who work with patient records day to day.
+ClinicalStaff = Annotated[
+    User, Depends(_require(Role.TECHNICIAN, Role.RADIOLOGIST, Role.PATHOLOGIST, Role.DOCTOR))
+]
+# Anyone who can see studies: patients and clinical staff.
+StudyViewer = Annotated[
+    User,
+    Depends(
+        _require(Role.PATIENT, Role.TECHNICIAN, Role.RADIOLOGIST, Role.PATHOLOGIST, Role.DOCTOR)
+    ),
+]
 
 
 def enforce_rate_limit(limiter: RateLimiter, key: str) -> None:

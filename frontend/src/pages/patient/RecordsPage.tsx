@@ -14,6 +14,7 @@ import {
   Skeleton,
 } from "../../components/ui";
 import { api } from "../../lib/api";
+import { CriticalBadge } from "../../components/Clinical";
 import { formatDate } from "../../lib/format";
 
 export function RecordsPage() {
@@ -24,9 +25,9 @@ export function RecordsPage() {
   return (
     <>
       <PageHeader
-        eyebrow={`${user.reference}`}
+        eyebrow={`${user.organization.name} · UHID ${user.reference}`}
         title="Your records"
-        description="Reports your clinicians have reviewed and signed. They are stored encrypted, and you decide which other clinicians can open them."
+        description="Your scan and lab reports, signed by the reporting doctor. They are stored encrypted, and you decide which doctors can open them."
       />
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <section aria-label="Records" className="space-y-3">
@@ -36,7 +37,7 @@ export function RecordsPage() {
           )}
           {records.data?.length === 0 && (
             <EmptyState title="No records yet">
-              Records appear here as soon as a clinician signs and publishes a study for you.
+              Your reports appear here as soon as they are signed.
             </EmptyState>
           )}
           {records.data?.map((study) => (
@@ -49,13 +50,15 @@ export function RecordsPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-muted text-sm">{study.analysis_name}</span>
                   <Badge>{study.modality}</Badge>
+                  {study.critical && <CriticalBadge />}
                 </div>
                 <p className="text-ink-strong mt-1 font-serif text-2xl tracking-[-0.02em]">
                   {study.top_finding}
                 </p>
                 <p className="text-muted mt-1 text-sm">
-                  Signed by {study.clinician.name}
+                  Signed by {study.reporter?.name}
                   {study.published_at ? ` · ${formatDate(study.published_at)}` : ""}
+                  {study.referred_by ? ` · referred by ${study.referred_by}` : ""}
                 </p>
               </div>
               <ArrowRightIcon
@@ -74,8 +77,8 @@ export function RecordsPage() {
               {team.data === undefined
                 ? "Loading…"
                 : team.data.length === 0
-                  ? "Only the clinicians who reported a study can open it."
-                  : `${team.data.length} clinician${team.data.length === 1 ? "" : "s"} can open all your records.`}
+                  ? "Only the reporting doctor and your referring doctor can open each report."
+                  : `${team.data.length} doctor${team.data.length === 1 ? "" : "s"} can open all your records.`}
             </p>
             <ButtonLink to="/sharing" variant="secondary" size="sm" className="mt-4">
               Manage sharing

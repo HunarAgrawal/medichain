@@ -1,3 +1,4 @@
+import hashlib
 from datetime import UTC, date, datetime
 
 import pytest
@@ -7,7 +8,8 @@ from app.crypto import IntegrityError, seal, unseal
 from app.imaging import decode_scan
 from app.ml.engine import Prediction
 from app.models import Role, User
-from app.report import ReportInput, render_report
+from app.report import Letterhead, ReportInput, render_report
+from app.storage import LocalStorage, StorageError
 from app.wallets import WalletVault
 from tests.conftest import png_bytes
 
@@ -52,20 +54,37 @@ def test_sixteen_bit_scans_are_normalised() -> None:
 def test_report_renders_and_escapes_user_text() -> None:
     pdf = render_report(
         ReportInput(
-            report_id="study-1",
+            letterhead=Letterhead(
+                name="<b>Sunrise</b> & Co Hospital",
+                department="Department of Radiology",
+                address="12 Health City Road, Noida",
+                contact="+91 120 400 7000",
+                accreditation="NABH accredited",
+            ),
             record_id="0x" + "ab" * 32,
-            published_at=datetime(2026, 10, 19, tzinfo=UTC),
+            accession="ACC-261019-0001",
+            site_name="Main campus",
+            published_at=datetime(2026, 10, 19, 9, 30, tzinfo=UTC),
+            acquired_at=datetime(2026, 10, 19, 8, 45, tzinfo=UTC),
             patient_name="<b>Ann & Co</b>",
-            patient_reference="MC-1234ABCD",
+            patient_uhid="TH1-26-000001",
+            patient_sex="F",
             patient_dob=date(1979, 3, 14),
-            analysis_name="Brain tumor",
+            referred_by="Dr. <i>Mehta</i>",
+            priority="stat",
+            indication="Headache <script>alert(1)</script>",
+            analysis_name="Brain tumor screening",
             modality="MRI",
             model_id="test/model",
             predictions=[Prediction("Glioma", 0.8), Prediction("No tumor", 0.2)],
             final_finding="Meningioma",
+            findings="Extra-axial lesion.",
             impression="Extra-axial mass.\n<font size=90>Follow up</font> in 6 weeks.",
-            clinician_name="Dr. Rao",
-            clinician_title="Radiologist",
+            critical=True,
+            reporter_name="Dr. Rao",
+            reporter_title="Consultant Radiologist",
+            reporter_qualification="MD (Radiodiagnosis)",
+            reporter_registration="UPMC-21458",
             scan=Image.new("RGB", (200, 120), "gray"),
             heatmap=Image.new("RGB", (200, 120), "red"),
             scan_sha256="0" * 64,
@@ -73,3 +92,16 @@ def test_report_renders_and_escapes_user_text() -> None:
         )
     )
     assert pdf.startswith(b"%PDF")
+
+
+async def test_local_storage_is_content_addressed(tmp_path) -> None:
+    storage = LocalStorage(str(tmp_path / "files"))
+    cid = await storage.add(b"sealed bytes", "x.bin")
+
+    assert cid == "sha256-" + hashlib.sha256(b"sealed bytes").hexdigest()
+    assert await storage.add(b"sealed bytes", "again.bin") == cid
+    assert await storage.cat(cid) == b"sealed bytes"
+    assert "Local" in await storage.ping()
+    for bad in ("sha256-../../etc/passwd", "bafy" + "a" * 50, "sha256-" + "0" * 64):
+        with pytest.raises(StorageError):
+            await storage.cat(bad)

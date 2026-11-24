@@ -4,13 +4,7 @@ import { Link, useParams } from "react-router";
 
 import { useUser } from "../../auth/session";
 import { ActivityList } from "../../components/Activity";
-import {
-  AiFindings,
-  ClinicalReview,
-  RecordProof,
-  ScanImages,
-  StudyHeader,
-} from "../../components/Study";
+import { RecordProof, SignedReport, StudyBanner, StudyEvidence } from "../../components/Study";
 import { Card, PageError, PageLoading, SectionTitle } from "../../components/ui";
 import { api } from "../../lib/api";
 
@@ -34,12 +28,11 @@ export function RecordPage() {
       >
         <ArrowLeftIcon aria-hidden weight="bold" className="size-3.5" /> All records
       </Link>
-      <StudyHeader study={study.data} viewer="patient" />
+      <StudyBanner study={study.data} showPatient={false} />
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-6">
-          <ClinicalReview study={study.data} />
-          <ScanImages study={study.data} />
-          <AiFindings study={study.data} />
+          <SignedReport study={study.data} />
+          <StudyEvidence study={study.data} />
         </div>
         <aside className="space-y-6">
           <RecordProof study={study.data} />

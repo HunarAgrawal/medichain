@@ -28,6 +28,7 @@ _CONTRACT_ERRORS: dict[str, tuple[int, str]] = {
     "RecordAlreadyExists": (409, "This study has already been published."),
     "DuplicateReport": (409, "An identical report is already registered."),
     "InvalidAddress": (422, "That account cannot be used here."),
+    "InvalidReferrer": (422, "The referring doctor is not verified on the registry."),
 }
 
 

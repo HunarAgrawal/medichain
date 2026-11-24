@@ -60,6 +60,7 @@ describe("MediChainRegistry", function () {
       .publishRecord(
         RECORD_ID,
         fixture.patient.address,
+        ethers.ZeroAddress,
         REPORT_HASH,
         SCAN_CID,
         REPORT_CID,
@@ -89,13 +90,20 @@ describe("MediChainRegistry", function () {
         .publishRecord(
           RECORD_ID,
           patient.address,
+          ethers.ZeroAddress,
           REPORT_HASH,
           SCAN_CID,
           REPORT_CID,
         ),
     )
       .to.emit(registry, "RecordPublished")
-      .withArgs(RECORD_ID, patient.address, issuer.address, REPORT_HASH);
+      .withArgs(
+        RECORD_ID,
+        patient.address,
+        issuer.address,
+        REPORT_HASH,
+        ethers.ZeroAddress,
+      );
 
     const publishedAt = BigInt(await networkHelpers.time.latest());
     expect(await registry.connect(patient).getRecord(RECORD_ID)).to.deep.equal(
@@ -106,6 +114,7 @@ describe("MediChainRegistry", function () {
         REPORT_HASH,
         SCAN_CID,
         REPORT_CID,
+        ethers.ZeroAddress,
       ],
     );
   });
@@ -245,6 +254,7 @@ describe("MediChainRegistry", function () {
           .publishRecord(
             recordId,
             patient.address,
+            ethers.ZeroAddress,
             reportHash,
             scanCid,
             reportCid,
@@ -269,6 +279,7 @@ describe("MediChainRegistry", function () {
             .publishRecord(
               RECORD_ID,
               patient.address,
+              ethers.ZeroAddress,
               REPORT_HASH,
               SCAN_CID,
               REPORT_CID,
@@ -287,6 +298,7 @@ describe("MediChainRegistry", function () {
           .publishRecord(
             ethers.ZeroHash,
             patient.address,
+            ethers.ZeroAddress,
             REPORT_HASH,
             SCAN_CID,
             REPORT_CID,
@@ -305,6 +317,7 @@ describe("MediChainRegistry", function () {
             .publishRecord(
               RECORD_ID,
               patient,
+              ethers.ZeroAddress,
               REPORT_HASH,
               SCAN_CID,
               REPORT_CID,
@@ -323,6 +336,7 @@ describe("MediChainRegistry", function () {
           .publishRecord(
             RECORD_ID,
             patient.address,
+            ethers.ZeroAddress,
             ethers.ZeroHash,
             SCAN_CID,
             REPORT_CID,
@@ -343,6 +357,7 @@ describe("MediChainRegistry", function () {
           publisher.publishRecord(
             RECORD_ID,
             patient.address,
+            ethers.ZeroAddress,
             REPORT_HASH,
             cid,
             REPORT_CID,
@@ -352,6 +367,7 @@ describe("MediChainRegistry", function () {
           publisher.publishRecord(
             RECORD_ID,
             patient.address,
+            ethers.ZeroAddress,
             REPORT_HASH,
             SCAN_CID,
             cid,
@@ -371,6 +387,7 @@ describe("MediChainRegistry", function () {
             .publishRecord(
               RECORD_ID,
               otherPatient.address,
+              ethers.ZeroAddress,
               OTHER_REPORT_HASH,
               SCAN_CID,
               REPORT_CID,
@@ -389,11 +406,103 @@ describe("MediChainRegistry", function () {
           .publishRecord(
             OTHER_RECORD_ID,
             otherPatient.address,
+            ethers.ZeroAddress,
             REPORT_HASH,
             SCAN_CID,
             REPORT_CID,
           ),
       ).to.be.revertedWithCustomError(registry, "DuplicateReport");
+    });
+
+    it("lets the named referrer read that record, and only that record", async function () {
+      const { registry, issuer, clinician, otherClinician, patient } =
+        await networkHelpers.loadFixture(cliniciansFixture);
+      const publisher = registry.connect(issuer);
+
+      await expect(
+        publisher.publishRecord(
+          RECORD_ID,
+          patient.address,
+          clinician.address,
+          REPORT_HASH,
+          SCAN_CID,
+          REPORT_CID,
+        ),
+      )
+        .to.emit(registry, "RecordPublished")
+        .withArgs(
+          RECORD_ID,
+          patient.address,
+          issuer.address,
+          REPORT_HASH,
+          clinician.address,
+        );
+      await publisher.publishRecord(
+        OTHER_RECORD_ID,
+        patient.address,
+        ethers.ZeroAddress,
+        OTHER_REPORT_HASH,
+        SCAN_CID,
+        REPORT_CID,
+      );
+
+      expect(await registry.canAccess(RECORD_ID, clinician.address)).to.equal(
+        true,
+      );
+      expect(
+        (await registry.connect(clinician).getRecord(RECORD_ID)).referrer,
+      ).to.equal(clinician.address);
+      expect(
+        await registry.canAccess(OTHER_RECORD_ID, clinician.address),
+      ).to.equal(false);
+      expect(
+        await registry.canAccess(RECORD_ID, otherClinician.address),
+      ).to.equal(false);
+      expect(await registry.patientsOf(clinician.address)).to.deep.equal([]);
+    });
+
+    it("cuts off a deactivated referrer until reactivated", async function () {
+      const { registry, issuer, clinician, patient } =
+        await networkHelpers.loadFixture(cliniciansFixture);
+      await registry
+        .connect(issuer)
+        .publishRecord(
+          RECORD_ID,
+          patient.address,
+          clinician.address,
+          REPORT_HASH,
+          SCAN_CID,
+          REPORT_CID,
+        );
+
+      await registry.setClinician(clinician.address, false);
+      expect(await registry.canAccess(RECORD_ID, clinician.address)).to.equal(
+        false,
+      );
+      await registry.setClinician(clinician.address, true);
+      expect(await registry.canAccess(RECORD_ID, clinician.address)).to.equal(
+        true,
+      );
+    });
+
+    it("reverts InvalidReferrer for an unverified referrer or the patient", async function () {
+      const { registry, issuer, patient, stranger } =
+        await networkHelpers.loadFixture(cliniciansFixture);
+
+      for (const referrer of [stranger.address, patient.address]) {
+        await expect(
+          registry
+            .connect(issuer)
+            .publishRecord(
+              RECORD_ID,
+              patient.address,
+              referrer,
+              REPORT_HASH,
+              SCAN_CID,
+              REPORT_CID,
+            ),
+        ).to.be.revertedWithCustomError(registry, "InvalidReferrer");
+      }
     });
   });
 
@@ -607,6 +716,7 @@ describe("MediChainRegistry", function () {
         .publishRecord(
           OTHER_RECORD_ID,
           patient.address,
+          ethers.ZeroAddress,
           OTHER_REPORT_HASH,
           SCAN_CID,
           REPORT_CID,
@@ -616,6 +726,7 @@ describe("MediChainRegistry", function () {
         .publishRecord(
           otherPatientRecordId,
           otherPatient.address,
+          ethers.ZeroAddress,
           otherHash,
           SCAN_CID,
           REPORT_CID,

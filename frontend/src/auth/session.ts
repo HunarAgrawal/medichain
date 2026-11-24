@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api, ApiError, type Role, type User } from "../lib/api";
+import { HOME } from "../lib/roles";
 
 export const meKey = ["me"] as const;
 
@@ -51,11 +52,20 @@ export function useLogout() {
   });
 }
 
-const HOME: Record<Role, string> = {
-  patient: "/records",
-  clinician: "/worklist",
-  admin: "/admin",
-};
+/** Demo mode: sign out and straight back in as another persona. */
+export function useSwitchPersona() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ email, password }: { email: string; password: string }) => {
+      await api.logout().catch(() => undefined);
+      return api.login(email, password);
+    },
+    onSuccess: (user) => {
+      client.clear();
+      client.setQueryData(meKey, user);
+    },
+  });
+}
 
 export function homePath(role: Role): string {
   return HOME[role];

@@ -4,24 +4,39 @@ import { Link, NavLink, Outlet, useNavigate } from "react-router";
 
 import { homePath, useLogout, useMe, useUser } from "../auth/session";
 import type { Role } from "../lib/api";
+import { useMeta } from "../lib/queries";
+import { ROLE_LABEL, isReporter } from "../lib/roles";
+import { DemoBar } from "./DemoBar";
 import { Avatar, Badge, Button } from "./ui";
 import { cx } from "./ui/classes";
-import { ROLE_LABEL } from "../lib/roles";
 
 const NAV: Record<Role, { to: string; label: string; end?: boolean }[]> = {
+  technician: [
+    { to: "/desk", label: "Today" },
+    { to: "/patients", label: "Patients" },
+    { to: "/studies/new", label: "New study" },
+  ],
+  radiologist: [
+    { to: "/worklist", label: "Worklist" },
+    { to: "/patients", label: "Patients" },
+  ],
+  pathologist: [
+    { to: "/worklist", label: "Worklist" },
+    { to: "/patients", label: "Patients" },
+  ],
+  doctor: [
+    { to: "/reports", label: "Reports" },
+    { to: "/patients", label: "Patients" },
+  ],
   patient: [
     { to: "/records", label: "Records" },
     { to: "/sharing", label: "Sharing" },
     { to: "/activity", label: "Activity" },
   ],
-  clinician: [
-    { to: "/worklist", label: "Worklist" },
-    { to: "/studies/new", label: "New study" },
-    { to: "/patients", label: "Patients" },
-  ],
   admin: [
-    { to: "/admin", label: "Overview", end: true },
-    { to: "/admin/users", label: "Users" },
+    { to: "/admin", label: "Dashboard", end: true },
+    { to: "/admin/staff", label: "Staff" },
+    { to: "/admin/settings", label: "Settings" },
     { to: "/admin/audit", label: "Audit log" },
   ],
 };
@@ -35,11 +50,16 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
     isActive ? "bg-black/[0.05] text-ink-strong" : "text-muted hover:text-ink-strong",
   );
 
-function Brand({ to }: { to: string }) {
+export function Brand({ to, workspace }: { to: string; workspace?: string }) {
   return (
-    <Link to={to} className="flex items-center gap-2.5" aria-label="Medichain home">
-      <img src="/favicon.svg" alt="" className="size-7" />
+    <Link to={to} className="flex min-w-0 items-center gap-2.5" aria-label="Medichain home">
+      <img src="/favicon.svg" alt="" className="size-7 shrink-0" />
       <span className="text-ink-strong font-medium tracking-tight">Medichain</span>
+      {workspace && (
+        <span className="border-line text-muted hidden truncate border-l pl-2.5 text-sm sm:inline">
+          {workspace}
+        </span>
+      )}
     </Link>
   );
 }
@@ -55,11 +75,14 @@ function SkipLink() {
   );
 }
 
-function Footer() {
+export function Footer() {
   return (
     <footer className="border-line border-t">
       <div className="text-muted mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-6 text-xs sm:px-6">
-        <p>Research prototype. AI findings support clinicians; they are not a diagnosis.</p>
+        <p>
+          AI pre-reads and result flags support the reporting doctor; the signed report is the
+          clinical interpretation.
+        </p>
         <nav aria-label="Footer" className="flex items-center gap-5">
           <Link to="/verify" className="hover:text-ink-strong underline-offset-4 hover:underline">
             Verify a report
@@ -79,12 +102,29 @@ function Footer() {
   );
 }
 
-function Shell({ header, children }: { header: ReactNode; children: ReactNode }) {
+function Shell({
+  header,
+  children,
+  wide,
+  padBottom,
+}: {
+  header: ReactNode;
+  children: ReactNode;
+  wide?: boolean;
+  padBottom?: boolean;
+}) {
   return (
     <div className="flex min-h-dvh flex-col">
       <SkipLink />
       {header}
-      <main id="main" className="mx-auto w-full max-w-6xl flex-1 px-4 py-10 sm:px-6 sm:py-12">
+      <main
+        id="main"
+        className={cx(
+          "mx-auto w-full flex-1 px-4 py-10 sm:px-6 sm:py-12",
+          wide ? "max-w-7xl" : "max-w-6xl",
+          padBottom && "pb-28",
+        )}
+      >
         {children}
       </main>
       <Footer />
@@ -94,6 +134,7 @@ function Shell({ header, children }: { header: ReactNode; children: ReactNode })
 
 export function AppLayout() {
   const user = useUser();
+  const { data: meta } = useMeta();
   const logout = useLogout();
   const navigate = useNavigate();
   const links = NAV[user.role].map((item) => (
@@ -101,14 +142,17 @@ export function AppLayout() {
       {item.label}
     </NavLink>
   ));
+  const demo = Boolean(meta?.demo);
 
   return (
     <Shell
+      wide={isReporter(user.role) || user.role === "admin"}
+      padBottom={demo}
       header={
         <header className="border-line bg-canvas/85 sticky top-0 z-20 border-b backdrop-blur">
-          <div className="mx-auto flex h-16 max-w-6xl items-center gap-6 px-4 sm:px-6">
-            <Brand to={homePath(user.role)} />
-            <nav aria-label="Primary" className="hidden gap-1 md:flex">
+          <div className="mx-auto flex h-16 max-w-7xl items-center gap-6 px-4 sm:px-6">
+            <Brand to={homePath(user.role)} workspace={user.organization.short_name} />
+            <nav aria-label="Primary" className="hidden gap-1 lg:flex">
               {links}
             </nav>
             <div className="ml-auto flex items-center gap-2">
@@ -125,7 +169,7 @@ export function AppLayout() {
                 }
               >
                 <Avatar name={user.name} size="sm" />
-                <span className="text-ink-strong hidden max-w-40 truncate text-sm lg:inline">
+                <span className="text-ink-strong hidden max-w-40 truncate text-sm xl:inline">
                   {user.name}
                 </span>
               </NavLink>
@@ -136,15 +180,13 @@ export function AppLayout() {
                 title="Sign out"
                 loading={logout.isPending}
                 icon={<SignOutIcon weight="bold" className="size-4" aria-hidden />}
-                onClick={() =>
-                  logout.mutate(undefined, { onSettled: () => void navigate("/login") })
-                }
+                onClick={() => logout.mutate(undefined, { onSettled: () => void navigate("/") })}
               />
             </div>
           </div>
           <nav
             aria-label="Primary"
-            className="border-line flex gap-1 overflow-x-auto border-t px-4 py-2 md:hidden"
+            className="border-line flex gap-1 overflow-x-auto border-t px-4 py-2 lg:hidden"
           >
             {links}
           </nav>
@@ -152,6 +194,7 @@ export function AppLayout() {
       }
     >
       <Outlet />
+      {demo && <DemoBar />}
     </Shell>
   );
 }
@@ -166,7 +209,7 @@ export function PublicLayout() {
             <Brand to="/" />
             {user ? (
               <Link to={homePath(user.role)} className="text-muted hover:text-ink-strong text-sm">
-                Back to Medichain
+                Back to your workspace
               </Link>
             ) : (
               <Link to="/login" className="text-muted hover:text-ink-strong text-sm">

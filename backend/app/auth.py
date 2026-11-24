@@ -47,8 +47,9 @@ def _dummy_hash() -> str:
 
 
 def verify_or_waste_time(password: str, user: User | None) -> bool:
-    """Verify a login. Unknown emails still pay the hashing cost, so timing reveals nothing."""
-    if user is None:
+    """Verify a login. Unknown emails, and patients without portal access, still pay the
+    hashing cost, so timing reveals nothing."""
+    if user is None or user.password_hash is None:
         verify_password(password, _dummy_hash())
         return False
     return verify_password(password, user.password_hash)

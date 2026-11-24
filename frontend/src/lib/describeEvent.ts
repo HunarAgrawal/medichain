@@ -34,12 +34,18 @@ export function describeEvent(event: AuditEvent, me: User): string {
       return `${actor} signed out`;
     case "password_changed":
       return `${actor} changed ${actor === "You" ? "your" : "their"} password`;
+    case "patient_registered":
+      return `${event.actor ? actor : "Setup"} registered ${target} as a patient`;
+    case "portal_enabled":
+      return `${actor} gave ${target} access to the patient portal`;
     case "study_created":
-      return `${actor} ran an AI analysis for ${target}`;
+      return `${actor} acquired a scan for ${target}; the AI pre-read ran`;
     case "study_discarded":
-      return `${actor} discarded a draft study for ${target}`;
+      return `${actor} discarded an unreported study for ${target}`;
     case "study_published":
-      return `${actor} signed and published a report for ${target}`;
+      return `${actor} signed a report for ${target}`;
+    case "critical_finding":
+      return `${actor} flagged a critical finding for ${target}`;
     case "file_viewed":
       return `${actor} opened ${targets} ${event.detail === "scan" ? "scan" : "report"}`;
     case "access_granted":
@@ -55,6 +61,10 @@ export function describeEvent(event: AuditEvent, me: User): string {
       return `${actor} deactivated ${targets} account`;
     case "user_reactivated":
       return `${actor} reactivated ${targets} account`;
+    case "settings_updated":
+      return `${actor} updated the hospital details (${event.detail ?? "settings"})`;
+    case "site_created":
+      return `${actor} added the site ${event.detail ?? ""}`.trim();
     case "report_verified":
       return "A copy of a report was verified against the registry";
     default:

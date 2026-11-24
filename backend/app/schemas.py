@@ -6,23 +6,90 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints, field_validator
 
 from app.auth import PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH
-from app.ml.catalog import AnalysisTypeId
-from app.models import Role, StudyStatus
+from app.catalog import Discipline, LabPanelId, StudyTypeId
+from app.models import OrgKind, Priority, Role, Sex, SiteKind, StudyStatus
 
+_SAFE = r"^[^\x00-\x1f\x7f<>]+$"
 Name = Annotated[
-    str,
-    StringConstraints(
-        strip_whitespace=True, min_length=1, max_length=100, pattern=r"^[^\x00-\x1f\x7f<>]+$"
-    ),
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100, pattern=_SAFE)
+]
+ShortText = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120, pattern=_SAFE)
+]
+OptionalText = Annotated[
+    str, StringConstraints(strip_whitespace=True, max_length=200, pattern=r"^[^\x00-\x1f\x7f<>]*$")
+]
+Phone = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^\+?[0-9 ()-]{7,20}$")]
+# ABHA numbers are 14 digits, usually written 12-3456-7890-1234.
+Abha = Annotated[
+    str, StringConstraints(strip_whitespace=True, pattern=r"^\d{2}-?\d{4}-?\d{4}-?\d{4}$")
 ]
 Password = Annotated[
     str, StringConstraints(min_length=PASSWORD_MIN_LENGTH, max_length=PASSWORD_MAX_LENGTH)
 ]
 FileKind = Literal["scan", "report", "heatmap"]
+StaffRole = Literal["admin", "radiologist", "pathologist", "technician", "doctor"]
 
 
 class _Model(BaseModel):
     model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+
+def _past(value: date | None) -> date | None:
+    if value and value > date.today():
+        raise ValueError("Date of birth cannot be in the future")
+    return value
+
+
+# Organizations and sites
+
+
+class OrgSummary(_Model):
+    id: str
+    name: str
+    short_name: str
+    kind: OrgKind
+    city: str | None
+
+
+class OrgOut(OrgSummary):
+    department: str
+    address: str | None
+    phone: str | None
+    email: str | None
+    accreditation: str | None
+    uhid_prefix: str
+    timezone: str
+
+
+class OrgUpdate(_Model):
+    name: ShortText | None = None
+    short_name: (
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)] | None
+    ) = None
+    kind: OrgKind | None = None
+    department: ShortText | None = None
+    address: OptionalText | None = None
+    city: OptionalText | None = None
+    phone: OptionalText | None = None
+    email: EmailStr | None = None
+    accreditation: OptionalText | None = None
+
+
+class SiteOut(_Model):
+    id: str
+    name: str
+    code: str
+    kind: SiteKind
+    city: str | None
+    is_active: bool
+
+
+class SiteCreate(_Model):
+    name: ShortText
+    code: Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[A-Za-z0-9-]{2,12}$")]
+    kind: SiteKind
+    city: OptionalText | None = None
 
 
 # Accounts
@@ -37,12 +104,16 @@ class UserSummary(_Model):
 
 
 class UserOut(UserSummary):
-    email: str
-    date_of_birth: date | None
+    email: str | None
+    phone: str | None
+    qualification: str | None
+    registration_number: str | None
+    site: SiteOut | None
     wallet_address: str | None
     is_active: bool
     created_at: datetime
     last_login_at: datetime | None
+    organization: OrgSummary
 
 
 class LoginRequest(_Model):
@@ -57,23 +128,100 @@ class PasswordChange(_Model):
     new_password: Password
 
 
+# Patients
+
+
+class PatientSummary(_Model):
+    id: str
+    name: str
+    uhid: str
+    sex: Sex | None
+    age: int | None
+
+
+class PatientOut(PatientSummary):
+    date_of_birth: date | None
+    phone: str | None
+    abha_number: str | None
+    email: str | None
+    portal_access: bool
+    created_at: datetime
+    studies: int
+    last_study_at: datetime | None
+
+
+class PatientCreate(_Model):
+    name: Name
+    sex: Sex
+    date_of_birth: date
+    phone: Phone | None = None
+    abha_number: Abha | None = None
+
+    @field_validator("date_of_birth")
+    @classmethod
+    def _check_dob(cls, value: date) -> date | None:
+        return _past(value)
+
+
+class PortalRequest(_Model):
+    email: EmailStr
+
+
+class PortalEnabled(_Model):
+    patient: PatientOut
+    temporary_password: str
+
+
 # Public metadata
 
 
-class AnalysisTypeInfo(_Model):
-    id: AnalysisTypeId
+class AnalyteInfo(_Model):
+    code: str
+    name: str
+    unit: str
+    kind: Literal["number", "screen"]
+    reference: dict[str, tuple[float, float]]
+    critical_low: float | None
+    critical_high: float | None
+    decimals: int
+    cutoff: str | None
+
+
+class StudyTypeInfo(_Model):
+    id: StudyTypeId
     name: str
     modality: str
+    discipline: Discipline
     description: str
     labels: list[str]
+    ai: bool
+    analytes: list[AnalyteInfo]
 
 
-class DemoAccount(_Model):
+class DemoPersona(_Model):
     role: Role
+    label: str
     name: str
     email: str
-    password: str
+    title: str | None
     description: str
+
+
+class DemoSample(_Model):
+    file: str
+    analysis_type: StudyTypeId
+    label: str
+
+
+class DemoSamples(_Model):
+    attribution: str
+    samples: list[DemoSample]
+
+
+class DemoInfo(_Model):
+    password: str
+    workspace: OrgSummary | None
+    personas: list[DemoPersona]
 
 
 class ChainInfo(_Model):
@@ -83,10 +231,11 @@ class ChainInfo(_Model):
 
 
 class MetaResponse(_Model):
-    analysis_types: list[AnalysisTypeInfo]
+    study_types: list[StudyTypeInfo]
     max_upload_mb: int
+    tat_targets_minutes: dict[Priority, int]
     chain: ChainInfo
-    demo_accounts: list[DemoAccount] | None
+    demo: DemoInfo | None
 
 
 # Studies
@@ -106,44 +255,84 @@ class RecordInfo(_Model):
     scan_sha256: str
 
 
+class SiteRef(_Model):
+    id: str
+    name: str
+    code: str
+
+
+class LabResultOut(_Model):
+    code: str
+    name: str
+    value: float | str
+    text: str  # the value as printed on the report
+    unit: str
+    reference: str
+    flag: Literal["", "L", "H", "LL", "HH", "POS"]
+
+
 class StudySummary(_Model):
     id: str
+    accession: str
     status: StudyStatus
-    analysis_type: AnalysisTypeId
+    priority: Priority
+    analysis_type: StudyTypeId
+    discipline: Discipline
     analysis_name: str
     modality: str
-    patient: UserSummary
-    clinician: UserSummary
-    top_finding: str | None
+    patient: PatientSummary
+    site: SiteRef
+    referred_by: str | None
+    reporter: UserSummary | None
+    top_finding: str | None  # empty unless the viewer may see clinical content
+    critical: bool
     created_at: datetime
     published_at: datetime | None
+    turnaround_minutes: int | None
 
 
 class StudyDetail(StudySummary):
-    model_id: str
+    access: Literal["full", "status"]
+    indication: str | None
+    created_by: UserSummary
+    referrer: UserSummary | None
+    model_id: str | None
     predictions: list[PredictionOut]
     final_finding: str | None
+    findings: str | None
     impression: str | None
     ai_agrees: bool | None
     has_heatmap: bool
+    results: list[LabResultOut]
     record: RecordInfo | None
+
+
+class LabStudyCreate(_Model):
+    patient_id: Annotated[str, StringConstraints(max_length=36)]
+    panel: LabPanelId
+    priority: Priority = Priority.ROUTINE
+    site_id: Annotated[str, StringConstraints(max_length=36)] | None = None
+    indication: OptionalText | None = None
+    referrer_id: Annotated[str, StringConstraints(max_length=36)] | None = None
+    referrer_name: OptionalText | None = None
+    # Numbers for measured analytes, "negative" or "positive" for screens.
+    values: dict[
+        Annotated[str, StringConstraints(max_length=16)],
+        float | Annotated[str, StringConstraints(max_length=16)],
+    ] = Field(max_length=40)
 
 
 class PublishRequest(_Model):
     final_finding: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)
     ]
+    findings: Annotated[str, StringConstraints(strip_whitespace=True, max_length=4000)] | None = (
+        None
+    )
     impression: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=10, max_length=2000)
     ]
-
-
-class PatientOverview(_Model):
-    patient: UserSummary
-    date_of_birth: date | None
-    shared_with_me: bool
-    published_studies: int
-    last_study_at: datetime | None
+    critical: bool = False
 
 
 # Sharing
@@ -178,17 +367,13 @@ class AuditEventOut(_Model):
 class AdminUserCreate(_Model):
     name: Name
     email: EmailStr
-    role: Role
-    title: Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)] | None = None
-    date_of_birth: date | None = None
+    role: StaffRole
+    title: OptionalText | None = None
+    qualification: OptionalText | None = None
+    registration_number: OptionalText | None = None
+    site_id: str | None = None
+    phone: Phone | None = None
     password: Password | None = None
-
-    @field_validator("date_of_birth")
-    @classmethod
-    def _past(cls, value: date | None) -> date | None:
-        if value and value > date.today():
-            raise ValueError("Date of birth cannot be in the future")
-        return value
 
 
 class AdminUserCreated(_Model):
@@ -205,9 +390,54 @@ class ServiceCheck(_Model):
     detail: str
 
 
-class AdminOverview(_Model):
-    users: dict[str, int]
-    studies: dict[str, int]
+class Kpis(_Model):
+    studies_today: int
+    reported_today: int
+    awaiting_report: int
+    stat_waiting: int
+    median_tat_minutes: int | None
+    within_target_pct: float | None
+    ai_agreement_pct: float | None  # imaging only: the radiologist confirmed the AI's top finding
+    critical_findings: int
+    studies_in_period: int
+
+
+class DailyVolume(_Model):
+    day: date
+    by_discipline: dict[str, int]
+    reported: int
+
+
+class PriorityTat(_Model):
+    priority: Priority
+    reported: int
+    median_minutes: int | None
+    target_minutes: int
+    within_target_pct: float | None
+
+
+class SiteLoad(_Model):
+    site: SiteRef
+    studies: int
+    awaiting: int
+    median_tat_minutes: int | None
+
+
+class ReporterLoad(_Model):
+    reporter: UserSummary
+    reports: int
+    median_tat_minutes: int | None
+
+
+class Dashboard(_Model):
+    period_days: int
+    kpis: Kpis
+    daily: list[DailyVolume]
+    tat_by_priority: list[PriorityTat]
+    sites: list[SiteLoad]
+    reporters: list[ReporterLoad]
+    staff: dict[str, int]
+    patients: int
     services: dict[str, ServiceCheck]
 
 
@@ -217,6 +447,9 @@ class AdminOverview(_Model):
 class Issuer(_Model):
     name: str
     title: str | None
+    qualification: str | None
+    registration_number: str | None
+    organization: str | None
 
 
 class VerifyResponse(_Model):
@@ -226,8 +459,9 @@ class VerifyResponse(_Model):
     published_at: datetime | None = None
     issuer: Issuer | None = None
     analysis_name: str | None = None
+    accession: str | None = None
     matches_expected_record: bool | None = None
 
 
-Limit = Annotated[int, Field(ge=1, le=100)]
+Limit = Annotated[int, Field(ge=1, le=200)]
 Offset = Annotated[int, Field(ge=0)]

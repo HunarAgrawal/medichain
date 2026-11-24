@@ -17,7 +17,7 @@ authorization, custodial keys, encryption at rest and request hardening.
 | --- | --- | --- |
 | `ENCRYPTION_KEY` | `backend/.env` | Stored scans and reports can be decrypted by whoever also has the ciphertext. Rotate and re-encrypt. |
 | `WALLET_ENCRYPTION_KEY` | `backend/.env` | Users' wallet keys can be unsealed from a database copy. Rotate, re-seal, and move consents to new keys. |
-| `OPERATOR_PRIVATE_KEY` | `backend/.env` | Anyone can verify or remove clinicians on the registry. Transfer contract ownership (`transferOwnership` + `acceptOwnership`) to a new key. |
+| `OPERATOR_PRIVATE_KEY` | `backend/.env` | Anyone can verify or remove radiologists and doctors on the registry. Transfer contract ownership (`transferOwnership` + `acceptOwnership`) to a new key. |
 | `PINATA_JWT` | `backend/.env` | Revoke it in the Pinata dashboard and create a new one. |
 | Database | `DATABASE_URL` | Holds sealed keys, sessions (hashed) and clinical text. Encrypt it at rest and restrict access. |
 | Deployer key | Hardhat keystore | Only deploys. Keep it separate from the operator key in production. |

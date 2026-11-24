@@ -17,15 +17,30 @@ def _get_study(env: Env, study_id: str) -> Study:
     return env.run(load)
 
 
-def test_clinician_creates_a_draft_with_ai_findings(env: Env) -> None:
-    clinician, patient = env.user(Role.CLINICIAN), env.user(Role.PATIENT, "Asha Verma")
-    study = env.draft(clinician, patient)
+def _publish(env: Env, study_id: str, **body: object) -> int:
+    payload = {"final_finding": "Glioma", "impression": "Enhancing left frontal mass.", **body}
+    return env.client.post(f"/api/v1/studies/{study_id}/publish", json=payload).status_code
 
-    assert study["status"] == "draft"
-    assert study["patient"]["name"] == "Asha Verma"
-    assert study["predictions"][0] == {"label": "Glioma", "score": 0.91}
-    assert study["has_heatmap"] is True
-    assert study["record"] is None
+
+def test_technician_acquires_a_study_for_the_reporting_worklist(env: Env) -> None:
+    technician = env.user(Role.TECHNICIAN)
+    doctor = env.user(Role.DOCTOR, "Dr. Mehta")
+    patient = env.user(Role.PATIENT, "Asha Verma")
+
+    study = env.draft(
+        technician,
+        patient,
+        priority="stat",
+        indication="Acute breathlessness.",
+        referrer_id=doctor.id,
+    )
+
+    assert study["status"] == "draft" and study["priority"] == "stat"
+    assert study["accession"].startswith("ACC-") and study["accession"].endswith("-0001")
+    assert study["patient"]["name"] == "Asha Verma" and study["patient"]["uhid"].startswith("TH1-")
+    assert study["referred_by"] == "Dr. Mehta" and study["site"]["code"] == "MAIN"
+    # Technicians track status; the AI pre-read is for the radiologist.
+    assert study["access"] == "status" and study["predictions"] == []
     assert study["created_at"].endswith(("+00:00", "Z")), "timestamps must carry their timezone"
 
     stored = _get_study(env, study["id"])
@@ -33,10 +48,16 @@ def test_clinician_creates_a_draft_with_ai_findings(env: Env) -> None:
     key = env.services.settings.encryption_key_bytes
     assert unseal(key, stored.draft_scan, kind="scan", subject=stored.id) == png_bytes()
 
+    env.login(env.user(Role.RADIOLOGIST))
+    detail = env.client.get(f"/api/v1/studies/{study['id']}").json()
+    assert detail["access"] == "full"
+    assert detail["predictions"][0] == {"label": "Glioma", "score": 0.91}
+    assert detail["indication"] == "Acute breathlessness." and detail["has_heatmap"] is True
 
-def test_only_clinicians_can_create_studies(env: Env) -> None:
+
+def test_only_acquiring_staff_can_create_studies(env: Env) -> None:
     patient = env.user(Role.PATIENT)
-    for actor in (patient, env.user(Role.ADMIN)):
+    for actor in (patient, env.user(Role.DOCTOR), env.user(Role.ADMIN)):
         env.login(actor)
         response = env.client.post(
             "/api/v1/studies",
@@ -46,46 +67,58 @@ def test_only_clinicians_can_create_studies(env: Env) -> None:
         assert response.status_code == 403
 
 
-def test_study_requires_an_active_patient_and_a_valid_image(env: Env) -> None:
-    clinician = env.user(Role.CLINICIAN)
-    other_clinician = env.user(Role.CLINICIAN)
+def test_a_study_needs_a_patient_site_and_image_from_this_hospital(env: Env) -> None:
+    technician, radiologist = env.user(Role.TECHNICIAN), env.user(Role.RADIOLOGIST)
     patient = env.user(Role.PATIENT)
-    env.login(clinician)
+    elsewhere = env.user(Role.PATIENT, org=1)
+    env.login(technician)
 
-    def create(patient_id: str, payload: bytes) -> int:
-        return env.client.post(
-            "/api/v1/studies",
-            data={"patient_id": patient_id, "analysis_type": "chest_xray"},
-            files={"file": ("scan.png", payload, "image/png")},
-        ).status_code
+    def create(payload: bytes = png_bytes(), **fields: str) -> int:
+        data = {"patient_id": patient.id, "analysis_type": "chest_xray", **fields}
+        files = {"file": ("scan.png", payload, "image/png")}
+        return env.client.post("/api/v1/studies", data=data, files=files).status_code
 
-    assert create(other_clinician.id, png_bytes()) == 404
-    assert create("missing", png_bytes()) == 404
-    assert create(patient.id, b"%PDF-1.7 not an image") == 415
-    assert create(patient.id, png_bytes(size=(32, 32))) == 422
-
-
-def test_drafts_are_private_to_their_clinician(env: Env) -> None:
-    clinician, patient = env.user(Role.CLINICIAN), env.user(Role.PATIENT)
-    study = env.draft(clinician, patient)
-
-    for outsider in (env.user(Role.CLINICIAN), patient):
-        env.login(outsider)
-        assert env.client.get(f"/api/v1/studies/{study['id']}").status_code == 404
-        assert env.client.get("/api/v1/studies").json() == []
+    assert create(patient_id=elsewhere.id) == 404
+    assert create(patient_id=radiologist.id) == 404
+    assert create(site_id="missing") == 404
+    assert create(referrer_id=radiologist.id) == 404, "referrers are doctors"
+    assert create(priority="whenever") == 422
+    assert create(b"%PDF-1.7 not an image") == 415
+    assert create(png_bytes(size=(32, 32))) == 422
 
 
-def test_publishing_anchors_an_encrypted_report_on_chain(env: Env) -> None:
-    clinician = env.user(Role.CLINICIAN, "Dr. Rao", title="Radiologist")
+def test_the_worklist_puts_stat_first_then_the_longest_waiting(env: Env) -> None:
+    technician, radiologist = env.user(Role.TECHNICIAN), env.user(Role.RADIOLOGIST)
     patient = env.user(Role.PATIENT)
-    study = env.published(clinician, patient)
+    routine = env.draft(technician, patient, priority="routine")
+    stat = env.draft(technician, patient, priority="stat")
+    urgent = env.draft(technician, patient, priority="urgent")
+    assert [routine["accession"][-4:], stat["accession"][-4:]] == ["0001", "0002"]
+
+    env.login(radiologist)
+    worklist = env.client.get(
+        "/api/v1/studies", params={"status": "draft", "order": "worklist"}
+    ).json()
+    assert [s["id"] for s in worklist] == [stat["id"], urgent["id"], routine["id"]]
+    assert {s["top_finding"] for s in worklist} == {"Glioma"}
+
+
+def test_reporting_anchors_an_encrypted_report_with_its_referrer(env: Env) -> None:
+    radiologist = env.user(Role.RADIOLOGIST, "Dr. Rao", title="Consultant Radiologist")
+    doctor, patient = env.user(Role.DOCTOR), env.user(Role.PATIENT)
+    study = env.published(
+        radiologist, patient, referrer=doctor, findings="Left frontal lesion.", critical=True
+    )
 
     record = study["record"]
-    assert study["status"] == "published"
+    assert study["status"] == "published" and study["critical"] is True
     assert study["final_finding"] == "Glioma" and study["ai_agrees"] is True
+    assert study["findings"] == "Left frontal lesion."
+    assert study["reporter"]["name"] == "Dr. Rao" and study["turnaround_minutes"] >= 0
     on_chain = env.registry.records[record["record_id"]]
     assert on_chain.patient == patient.wallet_address
-    assert on_chain.issuer == clinician.wallet_address
+    assert on_chain.issuer == radiologist.wallet_address
+    assert on_chain.referrer == doctor.wallet_address
     assert on_chain.report_hash == record["report_sha256"]
 
     report_blob = env.storage.blobs[record["report_cid"]]
@@ -96,36 +129,66 @@ def test_publishing_anchors_an_encrypted_report_on_chain(env: Env) -> None:
     assert _get_study(env, study["id"]).draft_scan is None
 
 
-def test_a_study_publishes_once(env: Env) -> None:
-    clinician, patient = env.user(Role.CLINICIAN), env.user(Role.PATIENT)
-    study = env.published(clinician, patient)
-    again = env.client.post(
-        f"/api/v1/studies/{study['id']}/publish",
-        json={"final_finding": "Glioma", "impression": "Second attempt at publishing."},
-    )
-    assert again.status_code == 409
+def test_any_radiologist_in_the_hospital_can_report_a_draft(env: Env) -> None:
+    technician, patient = env.user(Role.TECHNICIAN), env.user(Role.PATIENT)
+    study = env.draft(technician, patient)
+
+    env.login(env.user(Role.RADIOLOGIST, org=1))
+    assert env.client.get(f"/api/v1/studies/{study['id']}").status_code == 404
+    assert _publish(env, study["id"]) == 404
+
+    env.login(technician)
+    assert _publish(env, study["id"]) == 403
+    env.login(env.user(Role.RADIOLOGIST))
+    assert _publish(env, study["id"]) == 200
+    assert _publish(env, study["id"]) == 409, "a study is reported once"
 
 
-def test_unverified_clinicians_cannot_publish(env: Env) -> None:
-    clinician, patient = env.user(Role.CLINICIAN), env.user(Role.PATIENT)
-    study = env.draft(clinician, patient)
-    env.registry.clinicians.discard(clinician.wallet_address)
+def test_unverified_radiologists_cannot_sign(env: Env) -> None:
+    radiologist, patient = env.user(Role.RADIOLOGIST), env.user(Role.PATIENT)
+    study = env.draft(radiologist, patient)
+    env.registry.clinicians.discard(radiologist.wallet_address)
 
-    response = env.client.post(
-        f"/api/v1/studies/{study['id']}/publish",
-        json={"final_finding": "Glioma", "impression": "Enhancing left frontal mass."},
-    )
-    assert response.status_code == 403
+    assert _publish(env, study["id"]) == 403
     assert _get_study(env, study["id"]).status.value == "draft"
 
 
-def test_patient_reads_their_published_report_and_scan(env: Env) -> None:
-    clinician, patient = env.user(Role.CLINICIAN), env.user(Role.PATIENT)
-    study = env.published(clinician, patient)
+def test_the_referring_doctor_sees_status_then_the_signed_report(env: Env) -> None:
+    technician, radiologist = env.user(Role.TECHNICIAN), env.user(Role.RADIOLOGIST)
+    doctor, other_doctor = env.user(Role.DOCTOR), env.user(Role.DOCTOR)
+    patient = env.user(Role.PATIENT)
+    study = env.draft(technician, patient, referrer_id=doctor.id)
+    url = f"/api/v1/studies/{study['id']}"
+
+    env.login(doctor)
+    pending = env.client.get(url).json()
+    assert pending["access"] == "status" and pending["predictions"] == []
+    assert env.client.get(f"{url}/files/scan").status_code == 404
+
+    env.login(radiologist)
+    assert _publish(env, study["id"], critical=True) == 200
+
+    env.login(doctor)
+    signed = env.client.get(url).json()
+    assert signed["access"] == "full" and signed["critical"] is True
+    assert env.client.get(f"{url}/files/report").status_code == 200
+    alerts = env.client.get("/api/v1/studies", params={"critical": True}).json()
+    assert [s["id"] for s in alerts] == [study["id"]]
+
+    env.login(other_doctor)
+    assert env.client.get(url).status_code == 404
+    assert env.client.get("/api/v1/studies").json() == []
+
+
+def test_patient_reads_their_signed_report_and_scan(env: Env) -> None:
+    radiologist, patient = env.user(Role.RADIOLOGIST), env.user(Role.PATIENT)
+    draft = env.draft(radiologist, patient)
+    study = env.published(radiologist, patient)
     env.login(patient)
 
     listed = env.client.get("/api/v1/studies").json()
-    assert [s["id"] for s in listed] == [study["id"]]
+    assert [s["id"] for s in listed] == [study["id"]], "drafts stay with the hospital"
+    assert env.client.get(f"/api/v1/studies/{draft['id']}").status_code == 404
     report = env.client.get(f"/api/v1/studies/{study['id']}/files/report")
     assert report.headers["content-type"] == "application/pdf"
     assert hashlib.sha256(report.content).hexdigest() == study["record"]["report_sha256"]
@@ -134,48 +197,63 @@ def test_patient_reads_their_published_report_and_scan(env: Env) -> None:
     assert heatmap.headers["content-type"] == "image/png"
 
 
-def test_other_patients_and_unshared_clinicians_cannot_see_a_record(env: Env) -> None:
-    clinician, patient = env.user(Role.CLINICIAN), env.user(Role.PATIENT)
-    study = env.published(clinician, patient)
+def test_other_patients_and_unrelated_doctors_cannot_see_a_record(env: Env) -> None:
+    radiologist, patient = env.user(Role.RADIOLOGIST), env.user(Role.PATIENT)
+    study = env.published(radiologist, patient)
 
-    for outsider in (env.user(Role.PATIENT), env.user(Role.CLINICIAN)):
+    for outsider in (env.user(Role.PATIENT), env.user(Role.DOCTOR), env.user(Role.DOCTOR, org=1)):
         env.login(outsider)
         assert env.client.get(f"/api/v1/studies/{study['id']}").status_code == 404
         assert env.client.get(f"/api/v1/studies/{study['id']}/files/report").status_code == 404
 
 
-def test_sharing_controls_a_second_clinicians_access(env: Env) -> None:
-    issuer, colleague = env.user(Role.CLINICIAN), env.user(Role.CLINICIAN, "Dr. Chen")
+def test_sharing_controls_a_doctors_access(env: Env) -> None:
+    radiologist, doctor = env.user(Role.RADIOLOGIST), env.user(Role.DOCTOR, "Dr. Chen")
     patient = env.user(Role.PATIENT)
-    study = env.published(issuer, patient)
+    study = env.published(radiologist, patient)
     url = f"/api/v1/studies/{study['id']}"
 
     env.login(patient)
-    assert (
-        env.client.post("/api/v1/sharing", json={"clinician_id": colleague.id}).status_code == 201
-    )
-    env.login(colleague)
-    assert env.client.get(url).status_code == 200
+    assert env.client.post("/api/v1/sharing", json={"clinician_id": doctor.id}).status_code == 201
+    env.login(doctor)
+    assert env.client.get(url).json()["access"] == "full"
     assert env.client.get(f"{url}/files/report").status_code == 200
     assert [s["id"] for s in env.client.get("/api/v1/studies").json()] == [study["id"]]
 
     env.login(patient)
-    assert env.client.delete(f"/api/v1/sharing/{colleague.id}").status_code == 204
-    env.login(colleague)
+    assert env.client.delete(f"/api/v1/sharing/{doctor.id}").status_code == 204
+    env.login(doctor)
     assert env.client.get(url).status_code == 404
 
 
-def test_deactivated_issuers_lose_access(env: Env) -> None:
-    clinician, patient = env.user(Role.CLINICIAN), env.user(Role.PATIENT)
-    study = env.published(clinician, patient)
-    env.registry.clinicians.discard(clinician.wallet_address)
+def test_deactivated_radiologists_lose_access_to_their_reports(env: Env) -> None:
+    radiologist, patient = env.user(Role.RADIOLOGIST), env.user(Role.PATIENT)
+    study = env.published(radiologist, patient)
+    env.registry.clinicians.discard(radiologist.wallet_address)
 
-    assert env.client.get(f"/api/v1/studies/{study['id']}").status_code == 404
+    detail = env.client.get(f"/api/v1/studies/{study['id']}").json()
+    assert detail["access"] == "status" and detail["impression"] is None
+    assert env.client.get(f"/api/v1/studies/{study['id']}/files/report").status_code == 404
+
+
+def test_technicians_see_status_only(env: Env) -> None:
+    technician, radiologist = env.user(Role.TECHNICIAN), env.user(Role.RADIOLOGIST)
+    patient = env.user(Role.PATIENT)
+    draft = env.draft(technician, patient)
+    signed = env.published(radiologist, patient)
+
+    env.login(technician)
+    rows = {s["id"]: s for s in env.client.get("/api/v1/studies").json()}
+    assert rows[signed["id"]]["status"] == "published"
+    assert rows[signed["id"]]["top_finding"] is None
+    assert env.client.get(f"/api/v1/studies/{draft['id']}/files/scan").status_code == 200
+    assert env.client.get(f"/api/v1/studies/{draft['id']}/files/heatmap").status_code == 404
+    assert env.client.get(f"/api/v1/studies/{signed['id']}/files/report").status_code == 404
 
 
 def test_tampered_files_fail_the_integrity_check(env: Env) -> None:
-    clinician, patient = env.user(Role.CLINICIAN), env.user(Role.PATIENT)
-    study = env.published(clinician, patient)
+    radiologist, patient = env.user(Role.RADIOLOGIST), env.user(Role.PATIENT)
+    study = env.published(radiologist, patient)
     cid = study["record"]["report_cid"]
     blob = bytearray(env.storage.blobs[cid])
     blob[-1] ^= 0x01
@@ -186,8 +264,8 @@ def test_tampered_files_fail_the_integrity_check(env: Env) -> None:
 
 
 def test_views_are_recorded_in_the_patients_activity(env: Env) -> None:
-    clinician, patient = env.user(Role.CLINICIAN, "Dr. Rao"), env.user(Role.PATIENT)
-    study = env.published(clinician, patient)
+    radiologist, patient = env.user(Role.RADIOLOGIST, "Dr. Rao"), env.user(Role.PATIENT)
+    study = env.published(radiologist, patient)
     env.client.get(f"/api/v1/studies/{study['id']}/files/report")
 
     env.login(patient)
@@ -199,36 +277,41 @@ def test_views_are_recorded_in_the_patients_activity(env: Env) -> None:
     assert any(e["action"] == "file_viewed" and e["actor"]["name"] == "Dr. Rao" for e in timeline)
 
 
-def test_drafts_can_be_discarded_but_published_studies_cannot(env: Env) -> None:
-    clinician, patient = env.user(Role.CLINICIAN), env.user(Role.PATIENT)
-    draft = env.draft(clinician, patient)
+def test_unreported_studies_can_be_discarded_by_their_technician(env: Env) -> None:
+    technician, colleague = env.user(Role.TECHNICIAN), env.user(Role.TECHNICIAN)
+    radiologist, patient = env.user(Role.RADIOLOGIST), env.user(Role.PATIENT)
+    draft = env.draft(technician, patient)
+
+    env.login(colleague)
+    assert env.client.delete(f"/api/v1/studies/{draft['id']}").status_code == 409
+    env.login(technician)
     assert env.client.delete(f"/api/v1/studies/{draft['id']}").status_code == 204
     assert env.client.get(f"/api/v1/studies/{draft['id']}").status_code == 404
 
-    published = env.published(clinician, patient)
-    assert env.client.delete(f"/api/v1/studies/{published['id']}").status_code == 409
+    signed = env.published(radiologist, patient)
+    assert env.client.delete(f"/api/v1/studies/{signed['id']}").status_code == 409
 
 
 def test_admins_cannot_read_clinical_data(env: Env) -> None:
-    clinician, patient = env.user(Role.CLINICIAN), env.user(Role.PATIENT)
-    study = env.published(clinician, patient)
+    radiologist, patient = env.user(Role.RADIOLOGIST), env.user(Role.PATIENT)
+    study = env.published(radiologist, patient)
     env.login(env.user(Role.ADMIN))
 
     assert env.client.get(f"/api/v1/studies/{study['id']}").status_code == 403
     assert env.client.get("/api/v1/studies").status_code == 403
 
 
-def test_publishing_is_audited_with_its_transaction(env: Env) -> None:
-    clinician, patient = env.user(Role.CLINICIAN), env.user(Role.PATIENT)
-    study = env.published(clinician, patient)
+def test_reporting_is_audited_with_its_transaction(env: Env) -> None:
+    radiologist, doctor = env.user(Role.RADIOLOGIST), env.user(Role.DOCTOR)
+    study = env.published(radiologist, env.user(Role.PATIENT), referrer=doctor, critical=True)
 
-    async def published_events() -> list[AuditEvent]:
+    async def events(action: str) -> list[AuditEvent]:
         async with env.services.db() as db:
-            rows = await db.scalars(
-                select(AuditEvent).where(AuditEvent.action == "study_published")
-            )
+            rows = await db.scalars(select(AuditEvent).where(AuditEvent.action == action))
             return list(rows.unique().all())
 
-    (event,) = env.run(published_events)
-    assert event.study_id == study["id"]
-    assert event.tx_hash == study["record"]["tx_hash"]
+    (published,) = env.run(events, "study_published")
+    assert published.study_id == study["id"]
+    assert published.tx_hash == study["record"]["tx_hash"]
+    (critical,) = env.run(events, "critical_finding")
+    assert critical.target_user_id == doctor.id

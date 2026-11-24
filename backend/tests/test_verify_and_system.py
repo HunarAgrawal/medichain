@@ -9,9 +9,15 @@ from tests.conftest import CONTRACT_ADDRESS, CSRF, Env, build_services, make_set
 
 
 def _report_pdf(env: Env) -> tuple[bytes, dict]:
-    clinician = env.user(Role.CLINICIAN, "Dr. Ananya Rao", title="Consultant radiologist")
+    radiologist = env.user(
+        Role.RADIOLOGIST,
+        "Dr. Ananya Rao",
+        title="Consultant Radiologist",
+        qualification="MD (Radiodiagnosis)",
+        registration_number="UPMC-21458",
+    )
     patient = env.user(Role.PATIENT)
-    study = env.published(clinician, patient)
+    study = env.published(radiologist, patient)
     env.login(patient)
     return env.client.get(f"/api/v1/studies/{study['id']}/files/report").content, study
 
@@ -27,8 +33,15 @@ def test_a_published_report_verifies_without_signing_in(env: Env) -> None:
     )
     body = response.json()
     assert body["authentic"] is True
-    assert body["issuer"] == {"name": "Dr. Ananya Rao", "title": "Consultant radiologist"}
+    assert body["issuer"] == {
+        "name": "Dr. Ananya Rao",
+        "title": "Consultant Radiologist",
+        "qualification": "MD (Radiodiagnosis)",
+        "registration_number": "UPMC-21458",
+        "organization": "Test Hospital 1",
+    }
     assert body["analysis_name"] == "Brain tumor screening"
+    assert body["accession"] == study["accession"]
     assert body["matches_expected_record"] is True
 
 
@@ -53,15 +66,34 @@ def test_verify_rejects_malformed_record_ids(env: Env) -> None:
     assert response.status_code == 422
 
 
-def test_meta_lists_demo_accounts_only_in_demo_mode(env: Env, tmp_path) -> None:
+def test_meta_lists_demo_personas_only_in_demo_mode(env: Env, tmp_path) -> None:
+    env.organization()
     meta = env.client.get("/api/v1/meta").json()
-    assert {a["role"] for a in meta["demo_accounts"]} == {"patient", "clinician", "admin"}
+    personas = meta["demo"]["personas"]
+    assert [p["label"] for p in personas] == [
+        "Radiographer",
+        "Radiologist",
+        "Teleradiologist",
+        "Lab technologist",
+        "Pathologist",
+        "Referring doctor",
+        "Patient",
+        "Admin",
+    ]
+    assert personas[4]["role"] == "pathologist"
+    assert meta["demo"]["workspace"]["name"] == "Test Hospital 1"
+    assert meta["tat_targets_minutes"] == {"stat": 60, "urgent": 240, "routine": 1440}
     assert meta["chain"]["contract_address"] == CONTRACT_ADDRESS
-    assert {t["id"] for t in meta["analysis_types"]} == {"brain_tumor", "chest_xray"}
+    types = {t["id"]: t for t in meta["study_types"]}
+    assert set(types) == {"brain_tumor", "chest_xray", "cbc", "drug_screen"}
+    assert types["chest_xray"]["ai"] and types["chest_xray"]["discipline"] == "radiology"
+    assert not types["cbc"]["ai"] and types["cbc"]["discipline"] == "laboratory"
+    hb = types["cbc"]["analytes"][0]
+    assert hb["code"] == "hb" and hb["reference"] == {"F": [12.0, 15.0], "M": [13.0, 17.0]}
 
     quiet = build_services(make_settings(tmp_path / "quiet", demo_mode=False))
     with TestClient(create_app(services=quiet)) as client:
-        assert client.get("/api/v1/meta").json()["demo_accounts"] is None
+        assert client.get("/api/v1/meta").json()["demo"] is None
 
 
 def test_responses_carry_security_headers(env: Env) -> None:
@@ -114,3 +146,37 @@ def test_production_requires_a_real_operator_key(tmp_path) -> None:
             cookie_secure=True,
             operator_private_key=HARDHAT_DEV_KEY,
         )
+
+
+def test_the_api_can_serve_the_built_web_app(tmp_path) -> None:
+    web = tmp_path / "web"
+    (web / "assets").mkdir(parents=True)
+    (web / "index.html").write_text("<!doctype html><title>Medichain</title>")
+    (web / "assets" / "app-1a2b.js").write_text("console.log('app')")
+    (web / "favicon.svg").write_text("<svg/>")
+    (tmp_path / "secret.txt").write_text("outside the web root")
+    services = build_services(make_settings(tmp_path, static_dir=str(web)))
+
+    with TestClient(create_app(services=services)) as client:
+        for path in ("/", "/worklist", "/records/abc"):
+            page = client.get(path)
+            assert page.status_code == 200 and "<title>Medichain</title>" in page.text
+            assert "default-src 'self'" in page.headers["content-security-policy"]
+        asset = client.get("/assets/app-1a2b.js")
+        assert "immutable" in asset.headers["cache-control"]
+        assert client.get("/favicon.svg").text == "<svg/>"
+        assert "outside" not in client.get("/../secret.txt").text
+        assert client.get("/api/v1/health").json() == {"status": "ok"}
+        assert client.get("/api/v1/nope").status_code == 404
+
+
+def test_demo_sample_scans_are_served_to_signed_in_users_only(env: Env, tmp_path) -> None:
+    assert env.client.get("/api/v1/demo/samples").status_code == 401
+    env.login(env.user(Role.TECHNICIAN))
+    listing = env.client.get("/api/v1/demo/samples").json()
+    first = listing["samples"][0]
+    assert "CC BY 4.0" in listing["attribution"]
+    image = env.client.get(f"/api/v1/demo/samples/{first['file']}")
+    assert image.status_code == 200 and image.headers["content-type"].startswith("image/")
+    assert env.client.get("/api/v1/demo/samples/..%2F.env").status_code == 404
+    assert env.client.get("/api/v1/demo/samples/README.md").status_code == 404
