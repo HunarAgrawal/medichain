@@ -42,6 +42,11 @@
   },
   {
     "inputs": [],
+    "name": "InvalidReferrer",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "NotClinician",
     "type": "error"
   },
@@ -203,6 +208,12 @@
         "internalType": "bytes32",
         "name": "reportHash",
         "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "referrer",
+        "type": "address"
       }
     ],
     "name": "RecordPublished",
@@ -299,6 +310,11 @@
             "internalType": "string",
             "name": "reportCid",
             "type": "string"
+          },
+          {
+            "internalType": "address",
+            "name": "referrer",
+            "type": "address"
           }
         ],
         "internalType": "struct MediChainRegistry.Record",
@@ -396,6 +412,11 @@
       {
         "internalType": "address",
         "name": "patient",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "referrer",
         "type": "address"
       },
       {

@@ -7,8 +7,9 @@ import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet
 
 /// @title MediChainRegistry
 /// @notice Provenance and consent ledger for medical imaging studies. The owner verifies clinicians,
-/// verified clinicians publish each study's encrypted scan and report CIDs for a patient, patients
-/// grant or revoke clinicians, and anyone can verify a report PDF by its SHA-256.
+/// verified clinicians publish each study's encrypted scan and report CIDs for a patient (optionally
+/// naming the referring clinician), patients grant or revoke clinicians, and anyone can verify a
+/// report PDF by its SHA-256.
 /// @dev Storage and events are public on-chain, so CIDs must point to encrypted content.
 contract MediChainRegistry is Ownable2Step {
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -20,6 +21,7 @@ contract MediChainRegistry is Ownable2Step {
         bytes32 reportHash; // SHA-256 of the plaintext PDF report
         string scanCid;
         string reportCid;
+        address referrer; // The referring clinician, who may read this record; zero if none
     }
 
     uint256 private constant MAX_CID_LENGTH = 128;
@@ -32,13 +34,18 @@ contract MediChainRegistry is Ownable2Step {
 
     event ClinicianUpdated(address indexed clinician, bool active);
     event RecordPublished(
-        bytes32 indexed recordId, address indexed patient, address indexed issuer, bytes32 reportHash
+        bytes32 indexed recordId,
+        address indexed patient,
+        address indexed issuer,
+        bytes32 reportHash,
+        address referrer
     );
     event AccessGranted(address indexed patient, address indexed clinician);
     event AccessRevoked(address indexed patient, address indexed clinician);
 
     error NotClinician();
     error InvalidAddress();
+    error InvalidReferrer();
     error InvalidRecordId();
     error InvalidHash();
     error InvalidCid();
@@ -75,12 +82,15 @@ contract MediChainRegistry is Ownable2Step {
 
     /// @notice Publishes a study for `patient`, issued by the calling clinician.
     /// @param recordId A random, unused, non-zero identifier for the study.
+    /// @param referrer The verified clinician who referred the patient, who may then read this record
+    /// (and only this one), or the zero address.
     /// @param reportHash The SHA-256 of the plaintext PDF report. Each report can be published once.
     /// @param scanCid The IPFS CID of the encrypted scan, 1 to 128 bytes.
     /// @param reportCid The IPFS CID of the encrypted report, 1 to 128 bytes.
     function publishRecord(
         bytes32 recordId,
         address patient,
+        address referrer,
         bytes32 reportHash,
         string calldata scanCid,
         string calldata reportCid
@@ -88,6 +98,9 @@ contract MediChainRegistry is Ownable2Step {
         if (!_clinicians[msg.sender]) revert NotClinician();
         if (recordId == bytes32(0)) revert InvalidRecordId();
         if (patient == address(0) || patient == msg.sender) revert InvalidAddress();
+        if (referrer != address(0) && (referrer == patient || !_clinicians[referrer])) {
+            revert InvalidReferrer();
+        }
         if (reportHash == bytes32(0)) revert InvalidHash();
         _validateCid(scanCid);
         _validateCid(reportCid);
@@ -102,9 +115,10 @@ contract MediChainRegistry is Ownable2Step {
         record.reportHash = reportHash;
         record.scanCid = scanCid;
         record.reportCid = reportCid;
+        record.referrer = referrer;
         _recordIdByReportHash[reportHash] = recordId;
 
-        emit RecordPublished(recordId, patient, msg.sender, reportHash);
+        emit RecordPublished(recordId, patient, msg.sender, reportHash, referrer);
     }
 
     /// @notice Lets `clinician` read all of the caller's records. Repeat grants are no-ops.
@@ -128,7 +142,8 @@ contract MediChainRegistry is Ownable2Step {
     }
 
     /// @notice Returns whether `account` may read the record: its patient, or a verified clinician who
-    /// issued it or was granted access by the patient. False for an unknown record.
+    /// issued it, was named as its referrer, or was granted access by the patient. False for an unknown
+    /// record.
     function canAccess(bytes32 recordId, address account) external view returns (bool) {
         Record storage record = _records[recordId];
         return record.patient != address(0) && _canAccess(record, account);
@@ -171,7 +186,9 @@ contract MediChainRegistry is Ownable2Step {
         address patient = record.patient;
         if (account == patient) return true;
 
-        return _clinicians[account] && (account == record.issuer || _cliniciansOf[patient].contains(account));
+        if (!_clinicians[account]) return false;
+        return account == record.issuer || account == record.referrer
+            || _cliniciansOf[patient].contains(account);
     }
 
     function _validateCid(string calldata cid) private pure {
