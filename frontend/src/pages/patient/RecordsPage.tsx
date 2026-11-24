@@ -27,7 +27,7 @@ export function RecordsPage() {
       <PageHeader
         eyebrow={`${user.organization.name} · UHID ${user.reference}`}
         title="Your records"
-        description="Imaging reports signed by your radiologist. They are stored encrypted, and you decide which doctors can open them."
+        description="Your scan and lab reports, signed by the reporting doctor. They are stored encrypted, and you decide which doctors can open them."
       />
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <section aria-label="Records" className="space-y-3">
@@ -37,7 +37,7 @@ export function RecordsPage() {
           )}
           {records.data?.length === 0 && (
             <EmptyState title="No records yet">
-              Your reports appear here as soon as the radiologist signs them.
+              Your reports appear here as soon as they are signed.
             </EmptyState>
           )}
           {records.data?.map((study) => (
@@ -56,7 +56,7 @@ export function RecordsPage() {
                   {study.top_finding}
                 </p>
                 <p className="text-muted mt-1 text-sm">
-                  Signed by {study.radiologist?.name}
+                  Signed by {study.reporter?.name}
                   {study.published_at ? ` · ${formatDate(study.published_at)}` : ""}
                   {study.referred_by ? ` · referred by ${study.referred_by}` : ""}
                 </p>
@@ -77,7 +77,7 @@ export function RecordsPage() {
               {team.data === undefined
                 ? "Loading…"
                 : team.data.length === 0
-                  ? "Only your radiologist and referring doctor can open each report."
+                  ? "Only the reporting doctor and your referring doctor can open each report."
                   : `${team.data.length} doctor${team.data.length === 1 ? "" : "s"} can open all your records.`}
             </p>
             <ButtonLink to="/sharing" variant="secondary" size="sm" className="mt-4">

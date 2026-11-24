@@ -1,4 +1,4 @@
-/** Building blocks for showing an imaging study. Shared by staff and patient screens. */
+/** Building blocks for showing a study (imaging or laboratory). Shared by staff and patients. */
 
 import { ArrowSquareOutIcon, CheckIcon, SealCheckIcon } from "@phosphor-icons/react";
 import { Link } from "react-router";
@@ -8,10 +8,11 @@ import { ageSex } from "../lib/clinical";
 import { formatDateTime, shortHash } from "../lib/format";
 import { explorerTxUrl, useMeta } from "../lib/queries";
 import { CriticalBadge, PriorityBadge, StatusBadge, Turnaround, WaitingTime } from "./Clinical";
+import { LabResults } from "./Lab";
 import { Badge, Card, DetailList, Prediction, SectionTitle } from "./ui";
 import { buttonClass, cx } from "./ui/classes";
 
-/** Title row plus the patient and order details a radiologist reads before the images. */
+/** Title row plus the patient and order details the reporting doctor reads first. */
 export function StudyBanner({
   study,
   showPatient = true,
@@ -23,7 +24,10 @@ export function StudyBanner({
     ["Accession", study.accession],
     ["Site", study.site.name],
     ["Referred by", study.referred_by ?? "Self"],
-    ["Acquired", formatDateTime(study.created_at)],
+    [
+      study.discipline === "laboratory" ? "Collected" : "Acquired",
+      formatDateTime(study.created_at),
+    ],
   ];
   return (
     <header className="mb-8">
@@ -75,7 +79,7 @@ export function StudyBanner({
 
 export function SignedReport({ study }: { study: StudyDetail }) {
   if (study.status !== "published" || !study.final_finding) return null;
-  const signer = study.radiologist;
+  const signer = study.reporter;
   return (
     <Card className={cx(study.critical && "border-bad/40")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -115,6 +119,17 @@ export function SignedReport({ study }: { study: StudyDetail }) {
   );
 }
 
+/** What the report is based on: the images and AI pre-read, or the flagged lab results. */
+export function StudyEvidence({ study }: { study: StudyDetail }) {
+  if (study.discipline === "laboratory") return <LabResults study={study} />;
+  return (
+    <>
+      <ScanImages study={study} />
+      <AiFindings study={study} />
+    </>
+  );
+}
+
 export function AiFindings({ study }: { study: StudyDetail }) {
   if (study.predictions.length === 0) return null;
   return (
@@ -126,8 +141,7 @@ export function AiFindings({ study }: { study: StudyDetail }) {
         ))}
       </ul>
       <p className="text-muted mt-5 text-xs">
-        {study.model_id} · Decision support only. The radiologist's report is the clinical
-        interpretation.
+        {study.model_id} · Decision support only. The signed report is the clinical interpretation.
       </p>
     </Card>
   );
@@ -228,17 +242,20 @@ export function RecordProof({ study }: { study: StudyDetail }) {
 /** Where a study is, without any clinical content: for technicians and waiting referrers. */
 export function StudyProgress({ study }: { study: StudyDetail }) {
   const reported = study.status === "published";
+  const lab = study.discipline === "laboratory";
   const steps = [
     {
-      label: "Acquired",
+      label: lab ? "Results entered" : "Acquired",
       detail: `${formatDateTime(study.created_at)} by ${study.created_by.name}`,
       done: true,
     },
-    { label: "AI pre-read", detail: "Completed in seconds", done: true },
+    lab
+      ? { label: "Auto-flagged", detail: "Checked against reference intervals", done: true }
+      : { label: "AI pre-read", detail: "Completed in seconds", done: true },
     {
       label: reported ? "Reported" : "Awaiting report",
       detail: reported
-        ? `${study.published_at ? formatDateTime(study.published_at) : ""}${study.radiologist ? ` by ${study.radiologist.name}` : ""}`
+        ? `${study.published_at ? formatDateTime(study.published_at) : ""}${study.reporter ? ` by ${study.reporter.name}` : ""}`
         : null,
       done: reported,
     },

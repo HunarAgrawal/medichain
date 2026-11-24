@@ -30,7 +30,11 @@ export const routes: RouteObject[] = [
     ],
   },
   {
-    element: <RequireRole roles={["admin", "radiologist", "technician", "doctor", "patient"]} />,
+    element: (
+      <RequireRole
+        roles={["admin", "radiologist", "pathologist", "technician", "doctor", "patient"]}
+      />
+    ),
     errorElement: <RouteError />,
     children: [
       {
@@ -42,13 +46,13 @@ export const routes: RouteObject[] = [
             children: [route("/desk", () => import("./pages/staff/DeskPage"), "DeskPage")],
           },
           {
-            element: <RequireRole roles={["technician", "radiologist"]} />,
+            element: <RequireRole roles={["technician", "radiologist", "pathologist"]} />,
             children: [
               route("/studies/new", () => import("./pages/staff/NewStudyPage"), "NewStudyPage"),
             ],
           },
           {
-            element: <RequireRole roles={["technician", "radiologist", "doctor"]} />,
+            element: <RequireRole roles={["technician", "radiologist", "pathologist", "doctor"]} />,
             children: [
               route("/patients", () => import("./pages/staff/PatientsPage"), "PatientsPage"),
               route("/patients/:id", () => import("./pages/staff/PatientPage"), "PatientPage"),
@@ -56,7 +60,7 @@ export const routes: RouteObject[] = [
             ],
           },
           {
-            element: <RequireRole roles={["radiologist"]} />,
+            element: <RequireRole roles={["radiologist", "pathologist"]} />,
             children: [
               route("/worklist", () => import("./pages/radiologist/WorklistPage"), "WorklistPage"),
             ],

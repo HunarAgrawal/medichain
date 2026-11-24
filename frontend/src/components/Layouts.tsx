@@ -5,7 +5,7 @@ import { Link, NavLink, Outlet, useNavigate } from "react-router";
 import { homePath, useLogout, useMe, useUser } from "../auth/session";
 import type { Role } from "../lib/api";
 import { useMeta } from "../lib/queries";
-import { ROLE_LABEL } from "../lib/roles";
+import { ROLE_LABEL, isReporter } from "../lib/roles";
 import { DemoBar } from "./DemoBar";
 import { Avatar, Badge, Button } from "./ui";
 import { cx } from "./ui/classes";
@@ -17,6 +17,10 @@ const NAV: Record<Role, { to: string; label: string; end?: boolean }[]> = {
     { to: "/studies/new", label: "New study" },
   ],
   radiologist: [
+    { to: "/worklist", label: "Worklist" },
+    { to: "/patients", label: "Patients" },
+  ],
+  pathologist: [
     { to: "/worklist", label: "Worklist" },
     { to: "/patients", label: "Patients" },
   ],
@@ -75,7 +79,10 @@ export function Footer() {
   return (
     <footer className="border-line border-t">
       <div className="text-muted mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-6 text-xs sm:px-6">
-        <p>AI findings support radiologists; the signed report is the clinical interpretation.</p>
+        <p>
+          AI pre-reads and result flags support the reporting doctor; the signed report is the
+          clinical interpretation.
+        </p>
         <nav aria-label="Footer" className="flex items-center gap-5">
           <Link to="/verify" className="hover:text-ink-strong underline-offset-4 hover:underline">
             Verify a report
@@ -139,7 +146,7 @@ export function AppLayout() {
 
   return (
     <Shell
-      wide={user.role === "radiologist" || user.role === "admin"}
+      wide={isReporter(user.role) || user.role === "admin"}
       padBottom={demo}
       header={
         <header className="border-line bg-canvas/85 sticky top-0 z-20 border-b backdrop-blur">

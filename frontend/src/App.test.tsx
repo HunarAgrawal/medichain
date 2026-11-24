@@ -16,13 +16,49 @@ const ORG = {
 };
 
 const META: Meta = {
-  analysis_types: [
+  study_types: [
     {
       id: "chest_xray",
       name: "Pneumonia screening",
       modality: "Chest X-ray",
+      discipline: "radiology",
       description: "Pneumonia.",
       labels: ["Normal", "Pneumonia"],
+      ai: true,
+      analytes: [],
+    },
+    {
+      id: "cbc",
+      name: "Complete blood count",
+      modality: "Blood test",
+      discipline: "laboratory",
+      description: "Flagged against reference intervals.",
+      labels: ["Normal", "Anaemia"],
+      ai: false,
+      analytes: [
+        {
+          code: "hb",
+          name: "Haemoglobin",
+          unit: "g/dL",
+          kind: "number",
+          reference: { F: [12, 15], M: [13, 17] },
+          critical_low: 7,
+          critical_high: 20,
+          decimals: 1,
+          cutoff: null,
+        },
+        {
+          code: "plt",
+          name: "Platelet count",
+          unit: "x10^3/uL",
+          kind: "number",
+          reference: { "*": [150, 410] },
+          critical_low: 50,
+          critical_high: 1000,
+          decimals: 0,
+          cutoff: null,
+        },
+      ],
     },
   ],
   max_upload_mb: 10,
@@ -38,6 +74,7 @@ const META: Meta = {
     personas: [
       {
         role: "technician",
+        label: "Radiographer",
         name: "Rahul Verma",
         email: "rahul.verma@arogya.example",
         title: "Radiographer",
@@ -45,6 +82,7 @@ const META: Meta = {
       },
       {
         role: "radiologist",
+        label: "Radiologist",
         name: "Dr. Ananya Rao",
         email: "ananya.rao@arogya.example",
         title: "Consultant Radiologist",
@@ -52,6 +90,7 @@ const META: Meta = {
       },
       {
         role: "doctor",
+        label: "Referring doctor",
         name: "Dr. Arjun Mehta",
         email: "arjun.mehta@arogya.example",
         title: "Pulmonologist",
@@ -85,12 +124,13 @@ const STUDY: StudySummary = {
   status: "draft",
   priority: "stat",
   analysis_type: "chest_xray",
+  discipline: "radiology",
   analysis_name: "Pneumonia screening",
   modality: "Chest X-ray",
   patient: { id: "p-1", name: "Aman Gupta", uhid: "AMH-26-000031", sex: "M", age: 54 },
-  site: { id: "s-1", name: "Main campus · Radiology", code: "MAIN" },
+  site: { id: "s-1", name: "Main campus", code: "MAIN" },
   referred_by: "Dr. Arjun Mehta",
-  radiologist: null,
+  reporter: null,
   top_finding: "Pneumonia",
   critical: false,
   created_at: new Date(Date.now() - 14 * 60_000).toISOString(),
@@ -103,7 +143,7 @@ const REPORTED: StudySummary = {
   id: "study-2",
   status: "published",
   critical: true,
-  radiologist: {
+  reporter: {
     id: "r-1",
     name: "Dr. Ananya Rao",
     role: "radiologist",
@@ -229,6 +269,19 @@ describe("App", () => {
       SLOW,
     );
     expect(within(alerts.closest("section")!).getByText("Aman Gupta")).toBeInTheDocument();
+  });
+
+  it("flags lab results while the technologist types them", async () => {
+    mockApi(user("technician", "Imran Sheikh"));
+    renderAt("/studies/new");
+
+    await userEvent.click(await screen.findByRole("radio", { name: "Laboratory" }, SLOW));
+    await userEvent.type(screen.getByLabelText("Haemoglobin"), "9.5");
+    expect(screen.getByText("Low")).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Platelet count"), "40");
+    expect(screen.getByText("Critical low")).toBeInTheDocument();
+    expect(screen.getByText("2 of 2 · critical")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send to the pathologist" })).toBeDisabled();
   });
 
   it("verifies a report without signing in", async () => {

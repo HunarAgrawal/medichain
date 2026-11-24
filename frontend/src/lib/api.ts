@@ -2,13 +2,17 @@
 
 const BASE = "/api/v1";
 
-export type Role = "admin" | "radiologist" | "technician" | "doctor" | "patient";
+export type Role = "admin" | "radiologist" | "pathologist" | "technician" | "doctor" | "patient";
 export type StaffRole = Exclude<Role, "patient">;
 export type OrgKind = "hospital" | "imaging_centre" | "teleradiology";
 export type SiteKind = "radiology_department" | "imaging_centre" | "partner";
 export type Sex = "F" | "M" | "O";
 export type Priority = "routine" | "urgent" | "stat";
-export type AnalysisTypeId = "brain_tumor" | "chest_xray";
+export type Discipline = "radiology" | "laboratory";
+export type StudyTypeId = "brain_tumor" | "chest_xray" | "cbc" | "drug_screen";
+export type LabPanelId = Extract<StudyTypeId, "cbc" | "drug_screen">;
+/** "" normal, L/H outside the reference interval, LL/HH past a critical limit, POS reactive. */
+export type LabFlag = "" | "L" | "H" | "LL" | "HH" | "POS";
 export type StudyStatus = "draft" | "published";
 export type FileKind = "scan" | "report" | "heatmap";
 
@@ -93,16 +97,34 @@ export interface NewPatient {
   abha_number?: string;
 }
 
-export interface AnalysisType {
-  id: AnalysisTypeId;
+export interface Analyte {
+  code: string;
+  name: string;
+  unit: string;
+  kind: "number" | "screen";
+  /** Reference interval by sex ("F", "M"), or "*" when the same for everyone. */
+  reference: Record<string, [number, number]>;
+  critical_low: number | null;
+  critical_high: number | null;
+  decimals: number;
+  cutoff: string | null;
+}
+
+export interface StudyType {
+  id: StudyTypeId;
   name: string;
   modality: string;
+  discipline: Discipline;
   description: string;
   labels: string[];
+  /** True when an AI model pre-reads the study; lab panels are flagged by reference intervals. */
+  ai: boolean;
+  analytes: Analyte[];
 }
 
 export interface DemoPersona {
   role: Role;
+  label: string;
   name: string;
   email: string;
   title: string | null;
@@ -110,7 +132,7 @@ export interface DemoPersona {
 }
 
 export interface Meta {
-  analysis_types: AnalysisType[];
+  study_types: StudyType[];
   max_upload_mb: number;
   tat_targets_minutes: Record<Priority, number>;
   chain: { chain_id: number; contract_address: string; explorer_url: string | null };
@@ -136,13 +158,15 @@ export interface StudySummary {
   accession: string;
   status: StudyStatus;
   priority: Priority;
-  analysis_type: AnalysisTypeId;
+  analysis_type: StudyTypeId;
+  discipline: Discipline;
   analysis_name: string;
   modality: string;
   patient: PatientSummary;
   site: SiteRef;
   referred_by: string | null;
-  radiologist: UserSummary | null;
+  /** The radiologist or pathologist who signed the report. */
+  reporter: UserSummary | null;
   top_finding: string | null;
   critical: boolean;
   created_at: string;
@@ -162,7 +186,19 @@ export interface StudyDetail extends StudySummary {
   impression: string | null;
   ai_agrees: boolean | null;
   has_heatmap: boolean;
+  results: LabResult[];
   record: RecordInfo | null;
+}
+
+export interface LabResult {
+  code: string;
+  name: string;
+  value: number | string;
+  /** The value as printed on the report. */
+  text: string;
+  unit: string;
+  reference: string;
+  flag: LabFlag;
 }
 
 export interface StudyQuery {
@@ -179,13 +215,25 @@ export interface StudyQuery {
 
 export interface NewStudy {
   patient_id: string;
-  analysis_type: AnalysisTypeId;
+  analysis_type: StudyTypeId;
   priority: Priority;
   site_id?: string;
   indication?: string;
   referrer_id?: string;
   referrer_name?: string;
   file: File;
+}
+
+export interface NewLabStudy {
+  patient_id: string;
+  panel: LabPanelId;
+  priority: Priority;
+  site_id?: string;
+  indication?: string;
+  referrer_id?: string;
+  referrer_name?: string;
+  /** Numbers for measured analytes, "negative" or "positive" for screens. */
+  values: Record<string, number | string>;
 }
 
 export interface Report {
@@ -229,7 +277,7 @@ export interface Dashboard {
     critical_findings: number;
     studies_in_period: number;
   };
-  daily: { day: string; by_modality: Record<string, number>; reported: number }[];
+  daily: { day: string; by_discipline: Record<string, number>; reported: number }[];
   tat_by_priority: {
     priority: Priority;
     reported: number;
@@ -238,7 +286,7 @@ export interface Dashboard {
     within_target_pct: number | null;
   }[];
   sites: { site: SiteRef; studies: number; awaiting: number; median_tat_minutes: number | null }[];
-  radiologists: { radiologist: UserSummary; reports: number; median_tat_minutes: number | null }[];
+  reporters: { reporter: UserSummary; reports: number; median_tat_minutes: number | null }[];
   staff: Record<StaffRole, number>;
   patients: number;
   services: Record<string, ServiceCheck>;
@@ -280,7 +328,7 @@ export interface NewSite {
 
 export interface DemoSamples {
   attribution: string;
-  samples: { file: string; analysis_type: AnalysisTypeId; label: string }[];
+  samples: { file: string; analysis_type: StudyTypeId; label: string }[];
 }
 
 export interface VerifyResult {
@@ -393,6 +441,7 @@ export const api = {
     form.append("file", file);
     return request<StudyDetail>("/studies", { method: "POST", body: form });
   },
+  createLabStudy: (body: NewLabStudy) => request<StudyDetail>("/studies/lab", json("POST", body)),
   publishStudy: (studyId: string, report: Report) =>
     request<StudyDetail>(`/studies/${id(studyId)}/publish`, json("POST", report)),
   discardStudy: (studyId: string) => request<void>(`/studies/${id(studyId)}`, { method: "DELETE" }),

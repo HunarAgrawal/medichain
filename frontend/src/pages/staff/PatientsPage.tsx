@@ -22,12 +22,13 @@ import { inputClass } from "../../components/ui/classes";
 import { api } from "../../lib/api";
 import { ageSex, formatPhone, maskAbha } from "../../lib/clinical";
 import { timeAgo } from "../../lib/format";
+import { isReporter } from "../../lib/roles";
 
 export function PatientsPage() {
   const user = useUser();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const canRegister = user.role === "technician" || user.role === "radiologist";
+  const canRegister = user.role === "technician" || isReporter(user.role);
   const registering = canRegister && params.get("register") === "1";
   const [search, setSearch] = useState("");
   const term = useDeferredValue(search.trim());

@@ -6,11 +6,10 @@ import { Link, useNavigate, useParams } from "react-router";
 import { useUser } from "../../auth/session";
 import { ActivityList } from "../../components/Activity";
 import {
-  AiFindings,
   RecordProof,
-  ScanImages,
   SignedReport,
   StudyBanner,
+  StudyEvidence,
   StudyProgress,
 } from "../../components/Study";
 import {
@@ -28,7 +27,8 @@ import {
 import { cx, inputClass, textareaClass } from "../../components/ui/classes";
 import { api, fileUrl, type StudyDetail, type User } from "../../lib/api";
 import { useMeta } from "../../lib/queries";
-import { HOME } from "../../lib/roles";
+import { isCriticalFlag } from "../../lib/labs";
+import { HOME, isReporter } from "../../lib/roles";
 import { REPORT_TEMPLATES } from "../../lib/templates";
 
 const OTHER = "__other__";
@@ -43,12 +43,11 @@ export function StudyPage() {
   if (study.isPending) return <PageLoading />;
   if (study.error) return <PageError error={study.error} onRetry={() => void study.refetch()} />;
   const data = study.data;
-  const back =
-    user.role === "radiologist"
-      ? { to: "/worklist", label: "Worklist" }
-      : user.role === "doctor"
-        ? { to: "/reports", label: "Reports" }
-        : { to: HOME[user.role], label: "Today" };
+  const back = isReporter(user.role)
+    ? { to: "/worklist", label: "Worklist" }
+    : user.role === "doctor"
+      ? { to: "/reports", label: "Reports" }
+      : { to: HOME[user.role], label: "Today" };
 
   return (
     <>
@@ -81,16 +80,23 @@ function StatusView({ study, user }: { study: StudyDetail; user: User }) {
     },
   });
   const ownDraft = study.status === "draft" && study.created_by.id === user.id;
+  const lab = study.discipline === "laboratory";
   return (
     <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
       <div className="space-y-6">
         {user.role === "doctor" && study.status === "draft" && (
           <Alert tone="info">
-            The radiologist is reporting this study. You will see the signed report here, and in
-            your reports list, the moment it is ready.
+            The{" "}
+            {lab ? "pathologist is verifying these results" : "radiologist is reporting this study"}
+            . You will see the signed report here, and in your reports list, the moment it is ready.
           </Alert>
         )}
-        {user.role === "technician" && study.status === "draft" && (
+        {user.role === "technician" && study.status === "draft" && lab && (
+          <Alert tone="info">
+            Results saved and flagged. They are on the pathologist's worklist for verification.
+          </Alert>
+        )}
+        {user.role === "technician" && study.status === "draft" && !lab && (
           <Card>
             <SectionTitle>Acquired image</SectionTitle>
             <img
@@ -111,9 +117,9 @@ function StatusView({ study, user }: { study: StudyDetail; user: User }) {
         <StudyProgress study={study} />
         {ownDraft && (
           <Card>
-            <SectionTitle>Wrong patient or image?</SectionTitle>
+            <SectionTitle>Wrong patient or {lab ? "results" : "image"}?</SectionTitle>
             <p className="text-muted mb-3 text-sm">
-              Discard this study before it is reported, then acquire it again.
+              Discard this study before it is reported, then {lab ? "enter" : "acquire"} it again.
             </p>
             <ErrorAlert error={discard.error} />
             <ConfirmButton
@@ -139,8 +145,7 @@ function ReportView({ study, user }: { study: StudyDetail; user: User }) {
     <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
       <div className="min-w-0 space-y-6">
         <SignedReport study={study} />
-        <ScanImages study={study} />
-        <AiFindings study={study} />
+        <StudyEvidence study={study} />
       </div>
       <aside className="space-y-6 lg:sticky lg:top-24">
         <RecordProof study={study} />
@@ -161,8 +166,7 @@ function ReportingWorkspace({ study }: { study: StudyDetail }) {
   return (
     <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_28rem]">
       <div className="min-w-0 space-y-6">
-        <ScanImages study={study} />
-        <AiFindings study={study} />
+        <StudyEvidence study={study} />
       </div>
       <aside className="xl:sticky xl:top-24">
         <ReportForm study={study} />
@@ -175,16 +179,18 @@ function ReportForm({ study }: { study: StudyDetail }) {
   const { data: meta } = useMeta();
   const client = useQueryClient();
   const navigate = useNavigate();
-  const labels = meta?.analysis_types.find((t) => t.id === study.analysis_type)?.labels ?? [];
+  const labels = meta?.study_types.find((t) => t.id === study.analysis_type)?.labels ?? [];
+  const lab = study.discipline === "laboratory";
   const aiTop = study.predictions[0]?.label ?? "";
   const [choice, setChoice] = useState(aiTop);
   const [other, setOther] = useState("");
   const [findings, setFindings] = useState("");
   const [impression, setImpression] = useState("");
-  const [critical, setCritical] = useState(false);
+  // A result past a critical limit starts the report as critical; the pathologist decides.
+  const [critical, setCritical] = useState(() => study.results.some((r) => isCriticalFlag(r.flag)));
   const [attested, setAttested] = useState(false);
   const finding = choice === OTHER ? other.trim() : choice;
-  const template = REPORT_TEMPLATES[finding];
+  const template = REPORT_TEMPLATES[study.analysis_type][finding];
   const valid = finding.length > 0 && impression.trim().length >= 10 && attested;
 
   const publish = useMutation({
@@ -222,7 +228,9 @@ function ReportForm({ study }: { study: StudyDetail }) {
           <Field
             id="finding"
             label="Final finding"
-            hint={aiTop ? `AI suggestion: ${aiTop}` : undefined}
+            hint={
+              aiTop ? `${lab ? "Suggested by the flags" : "AI suggestion"}: ${aiTop}` : undefined
+            }
           >
             <Select id="finding" value={choice} onChange={(event) => setChoice(event.target.value)}>
               {labels.map((label) => (
@@ -309,8 +317,9 @@ function ReportForm({ study }: { study: StudyDetail }) {
               checked={attested}
               onChange={(event) => setAttested(event.target.checked)}
             />
-            I have reviewed the images and the AI pre-read, and this report reflects my clinical
-            judgement.
+            {lab
+              ? "I have verified the results and their flags, and this report reflects my clinical judgement."
+              : "I have reviewed the images and the AI pre-read, and this report reflects my clinical judgement."}
           </label>
         </fieldset>
         <ErrorAlert error={publish.error ?? discard.error} />

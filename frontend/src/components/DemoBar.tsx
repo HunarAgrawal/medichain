@@ -11,15 +11,31 @@ import { HOME, ROLE_LABEL } from "../lib/roles";
 import { Avatar, Spinner } from "./ui";
 import { cx } from "./ui/classes";
 
-const TIPS: Record<Role, string> = {
-  technician:
+// What to try first, by demo persona.
+const TIPS = {
+  Radiographer:
     "Register a walk-in patient, then start a new study. It reaches the radiologist at once.",
-  radiologist:
+  Radiologist:
     "Open the STAT chest X-ray at the top: review the AI pre-read, then sign the report.",
-  doctor: "Reports you referred arrive here the moment they are signed. Critical ones come first.",
-  patient:
+  Teleradiologist:
+    "Partner-clinic studies wait here. Report them remotely with the same worklist and signing.",
+  "Lab technologist":
+    "Start a new study, choose Laboratory and enter a blood count: abnormal values flag themselves.",
+  Pathologist:
+    "Open the STAT blood count at the top: a critical haemoglobin is flagged. Verify and sign it.",
+  "Referring doctor":
+    "Reports you referred arrive here the moment they are signed. Critical ones come first.",
+  Patient:
     "Open a report, then share your records with a doctor. You can withdraw access any time.",
-  admin: "Live turnaround, AI agreement and workload across every site. Rebrand it in Settings.",
+  Admin: "Live turnaround, AI agreement and workload across every site. Rebrand it in Settings.",
+} satisfies Record<string, string>;
+const ROLE_TIPS: Record<Role, string> = {
+  technician: TIPS.Radiographer,
+  radiologist: TIPS.Radiologist,
+  pathologist: TIPS.Pathologist,
+  doctor: TIPS["Referring doctor"],
+  patient: TIPS.Patient,
+  admin: TIPS.Admin,
 };
 
 export function DemoBar() {
@@ -51,6 +67,8 @@ export function DemoBar() {
 
   const demo = meta?.demo;
   if (!demo) return null;
+  const me = demo.personas.find((p) => p.email === user.email);
+  const tip = (me && (TIPS as Record<string, string>)[me.label]) ?? ROLE_TIPS[user.role];
 
   return (
     <div
@@ -86,8 +104,8 @@ export function DemoBar() {
                       {persona.name}
                     </span>
                     <span className="text-muted block truncate text-xs">
-                      {ROLE_LABEL[persona.role]}
-                      {persona.title && persona.title !== ROLE_LABEL[persona.role]
+                      {persona.label}
+                      {persona.title && persona.title !== persona.label
                         ? ` · ${persona.title}`
                         : ""}
                     </span>
@@ -103,10 +121,10 @@ export function DemoBar() {
           </span>
           <p className="hidden min-w-0 flex-1 items-center gap-2 text-sm text-white/80 md:flex">
             <LightbulbIcon aria-hidden weight="bold" className="size-4 shrink-0 text-white/60" />
-            <span className="truncate">{TIPS[user.role]}</span>
+            <span className="truncate">{tip}</span>
           </p>
           <span className="min-w-0 flex-1 truncate text-sm md:hidden">
-            {user.name} · {ROLE_LABEL[user.role]}
+            {user.name} · {me?.label ?? ROLE_LABEL[user.role]}
           </span>
           <button
             type="button"

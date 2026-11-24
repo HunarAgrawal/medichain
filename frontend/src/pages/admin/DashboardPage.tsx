@@ -53,7 +53,7 @@ export function DashboardPage() {
       <PageHeader
         eyebrow={user.organization.name}
         title="Operations"
-        description="Volume, turnaround and AI agreement across every site. Aggregates only: no patient data appears here."
+        description="Imaging and laboratory volume, turnaround and AI agreement across every site. Aggregates only: no patient data appears here."
       />
       <div className="mb-6">
         <Segmented
@@ -79,8 +79,8 @@ export function DashboardPage() {
         <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
           <Card>
             <StackedColumns
-              title="Studies acquired per day"
-              series={modalities(data)}
+              title="Studies per day, by department"
+              series={departments(data)}
               data={columns(data)}
             />
           </Card>
@@ -142,23 +142,26 @@ export function DashboardPage() {
             </Table>
           </section>
           <section>
-            <SectionTitle>Radiologists</SectionTitle>
+            <SectionTitle>Reporting doctors</SectionTitle>
             <Table>
               <thead>
                 <tr>
-                  <Th>Radiologist</Th>
+                  <Th>Doctor</Th>
                   <Th className="text-right">Reports</Th>
                   <Th className="text-right">Median TAT</Th>
                 </tr>
               </thead>
               <tbody>
-                {data.radiologists.map((row) => (
-                  <tr key={row.radiologist.id} className="group">
+                {data.reporters.map((row) => (
+                  <tr key={row.reporter.id} className="group">
                     <Td>
-                      <span className="text-ink-strong block text-sm">{row.radiologist.name}</span>
+                      <span className="text-ink-strong block text-sm">{row.reporter.name}</span>
+                      <span className="text-muted block text-xs">
+                        {ROLE_LABEL[row.reporter.role]}
+                      </span>
                       <Bar
                         value={row.reports}
-                        max={Math.max(...data.radiologists.map((r) => r.reports), 1)}
+                        max={Math.max(...data.reporters.map((r) => r.reports), 1)}
                       />
                     </Td>
                     <Td className="text-right tabular-nums">{row.reports}</Td>
@@ -256,7 +259,7 @@ function Kpis({ data }: { data: Dashboard }) {
       <StatCard
         label="AI agreement"
         value={pct(k.ai_agreement_pct)}
-        hint="Radiologist confirmed the AI's top finding"
+        hint="Imaging reports that confirm the AI's top finding"
       />
       <StatCard
         label="Critical findings"
@@ -278,9 +281,9 @@ function Bar({ value, max }: { value: number; max: number }) {
   );
 }
 
-function modalities(data: Dashboard) {
-  const keys = Object.keys(data.daily[0]?.by_modality ?? {}).sort((a, b) => (a < b ? -1 : 1));
-  return keys.map((key) => ({ key, label: key }));
+/** Series in the API's fixed order (Imaging, then Laboratory), so colours never swap. */
+function departments(data: Dashboard) {
+  return Object.keys(data.daily[0]?.by_discipline ?? {}).map((key) => ({ key, label: key }));
 }
 
 function columns(data: Dashboard): Column[] {
@@ -292,7 +295,7 @@ function columns(data: Dashboard): Column[] {
       key: row.day,
       label: longDay.format(date),
       tick: last || (data.daily.length - 1 - index) % every === 0 ? day.format(date) : "",
-      values: row.by_modality,
+      values: row.by_discipline,
       note: `${row.reported} reported`,
     };
   });

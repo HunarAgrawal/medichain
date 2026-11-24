@@ -4,13 +4,7 @@ import { Link, useParams } from "react-router";
 
 import { useUser } from "../../auth/session";
 import { ActivityList } from "../../components/Activity";
-import {
-  AiFindings,
-  RecordProof,
-  ScanImages,
-  SignedReport,
-  StudyBanner,
-} from "../../components/Study";
+import { RecordProof, SignedReport, StudyBanner, StudyEvidence } from "../../components/Study";
 import { Card, PageError, PageLoading, SectionTitle } from "../../components/ui";
 import { api } from "../../lib/api";
 
@@ -38,8 +32,7 @@ export function RecordPage() {
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-6">
           <SignedReport study={study.data} />
-          <ScanImages study={study.data} />
-          <AiFindings study={study.data} />
+          <StudyEvidence study={study.data} />
         </div>
         <aside className="space-y-6">
           <RecordProof study={study.data} />

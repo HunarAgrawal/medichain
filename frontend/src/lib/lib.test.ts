@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { api, ApiError, errorMessage, type AuditEvent, type User } from "./api";
+import { api, ApiError, errorMessage, type Analyte, type AuditEvent, type User } from "./api";
 import { ageSex, formatMinutes, formatPhone, maskAbha, tatState } from "./clinical";
 import { describeEvent } from "./describeEvent";
 import { age, formatDate, initials, shortHash } from "./format";
+import { flagFor, formatReference, labValues } from "./labs";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -132,5 +133,38 @@ describe("format", () => {
     expect(initials("Dr. Ananya Rao")).toBe("AR");
     expect(initials("Priya")).toBe("P");
     expect(shortHash("0x1234567890abcdef")).toBe("0x1234…cdef");
+  });
+});
+
+describe("lab flags", () => {
+  const hb: Analyte = {
+    code: "hb",
+    name: "Haemoglobin",
+    unit: "g/dL",
+    kind: "number",
+    reference: { F: [12, 15], M: [13, 17] },
+    critical_low: 7,
+    critical_high: 20,
+    decimals: 1,
+    cutoff: null,
+  };
+  const thc: Analyte = { ...hb, code: "thc", kind: "screen", reference: {}, cutoff: "50 ng/mL" };
+
+  it("mirrors the API: sex-specific intervals, critical limits and screens", () => {
+    expect(flagFor(hb, "12.5", "F")).toBe("");
+    expect(flagFor(hb, "12.5", "M")).toBe("L");
+    expect(flagFor(hb, "12.5", null)).toBe("");
+    expect(flagFor(hb, "6.9", "F")).toBe("LL");
+    expect(flagFor(hb, "21", "M")).toBe("HH");
+    expect(flagFor(hb, "", "F")).toBeNull();
+    expect(flagFor(hb, "abc", "F")).toBeNull();
+    expect(flagFor(thc, "positive", null)).toBe("POS");
+    expect(flagFor(thc, "negative", null)).toBe("");
+    expect(formatReference(hb, "M")).toBe("13.0 - 17.0");
+    expect(formatReference(thc, null)).toBe("Negative (cutoff 50 ng/mL)");
+    expect(labValues([hb, thc], { hb: " 9.6 ", thc: "Positive" })).toEqual({
+      hb: 9.6,
+      thc: "positive",
+    });
   });
 });

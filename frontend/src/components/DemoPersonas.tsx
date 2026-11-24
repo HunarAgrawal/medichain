@@ -6,8 +6,10 @@ import {
   FileTextIcon,
   GlobeHemisphereEastIcon,
   HeartbeatIcon,
+  MicroscopeIcon,
   ScanIcon,
   StethoscopeIcon,
+  TestTubeIcon,
   type Icon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
@@ -16,21 +18,22 @@ import { useNavigate } from "react-router";
 import { useSwitchPersona } from "../auth/session";
 import type { DemoPersona } from "../lib/api";
 import { useMeta } from "../lib/queries";
-import { HOME, ROLE_LABEL } from "../lib/roles";
+import { HOME } from "../lib/roles";
 import { ErrorAlert, Spinner } from "./ui";
 import { cx } from "./ui/classes";
 
-function personaIcon(persona: DemoPersona): Icon {
-  if (persona.title?.includes("Teleradiology")) return GlobeHemisphereEastIcon;
-  const icons = {
-    technician: ScanIcon,
-    radiologist: FileTextIcon,
-    doctor: StethoscopeIcon,
-    patient: HeartbeatIcon,
-    admin: ChartBarIcon,
-  } as const;
-  return icons[persona.role];
-}
+const ICONS: Record<string, Icon> = {
+  Radiographer: ScanIcon,
+  Radiologist: FileTextIcon,
+  Teleradiologist: GlobeHemisphereEastIcon,
+  "Lab technologist": TestTubeIcon,
+  Pathologist: MicroscopeIcon,
+  "Referring doctor": StethoscopeIcon,
+  Patient: HeartbeatIcon,
+  Admin: ChartBarIcon,
+};
+
+const personaIcon = (persona: DemoPersona): Icon => ICONS[persona.label] ?? FileTextIcon;
 
 export function DemoPersonas({ next, compact }: { next?: string | null; compact?: boolean }) {
   const { data: meta } = useMeta();
@@ -43,7 +46,7 @@ export function DemoPersonas({ next, compact }: { next?: string | null; compact?
   return (
     <div>
       <ul
-        className={cx("grid gap-3", compact ? "sm:grid-cols-2" : "sm:grid-cols-2 lg:grid-cols-3")}
+        className={cx("grid gap-3", compact ? "sm:grid-cols-2" : "sm:grid-cols-2 lg:grid-cols-4")}
       >
         {demo.personas.map((persona) => {
           const PersonaIcon = personaIcon(persona);
@@ -80,9 +83,7 @@ export function DemoPersonas({ next, compact }: { next?: string | null; compact?
                   )}
                 </span>
                 <span className="text-muted mt-4 text-[11px] font-medium tracking-[0.06em] uppercase">
-                  {persona.title?.includes("Teleradiology")
-                    ? "Teleradiologist"
-                    : ROLE_LABEL[persona.role]}
+                  {persona.label}
                 </span>
                 <span className="text-ink-strong mt-0.5 text-[15px] font-medium">
                   {persona.name}

@@ -139,7 +139,7 @@ function VerifyOutcome({ result }: { result: VerifyResult }) {
           <p className="text-muted mt-1 text-sm">
             {mismatch
               ? "This report is genuine, but it belongs to a different record than the QR code you followed."
-              : "This exact file was signed and registered by a verified radiologist. It has not been altered."}
+              : "This exact file was signed and registered by a verified doctor. It has not been altered."}
           </p>
         </div>
       </div>

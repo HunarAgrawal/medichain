@@ -27,6 +27,7 @@ import { api, type Priority } from "../../lib/api";
 import { DEFAULT_TARGET_MINUTES, minutesSince } from "../../lib/clinical";
 import { formatDateTime } from "../../lib/format";
 import { useMeta } from "../../lib/queries";
+import { REPORTING_DISCIPLINE, ROLE_LABEL } from "../../lib/roles";
 
 type Filter = "all" | Priority;
 
@@ -53,19 +54,20 @@ export function WorklistPage() {
     (s) => (priority === "all" || s.priority === priority) && (!siteId || s.site.id === siteId),
   );
   const overTarget = all.filter((s) => minutesSince(s.created_at) > targets[s.priority]).length;
-  const mine = (reported.data ?? []).filter((s) => s.radiologist?.id === user.id);
+  const mine = (reported.data ?? []).filter((s) => s.reporter?.id === user.id);
   const today = new Date().toDateString();
   const mineToday = mine.filter(
     (s) => s.published_at && new Date(s.published_at).toDateString() === today,
   );
   const count = (p: Priority) => all.filter((s) => s.priority === p).length;
+  const lab = REPORTING_DISCIPLINE[user.role] === "laboratory";
 
   return (
     <>
       <PageHeader
-        eyebrow={user.title ?? "Radiologist"}
+        eyebrow={user.title ?? ROLE_LABEL[user.role]}
         title="Worklist"
-        description={`Studies awaiting a report across ${user.organization.short_name}. STAT first, then the longest waiting.`}
+        description={`${lab ? "Lab results awaiting verification" : "Studies awaiting a report"} across ${user.organization.short_name}. STAT first, then the longest waiting.`}
         action={
           <ButtonLink to="/studies/new" variant="secondary">
             New study
@@ -140,7 +142,7 @@ export function WorklistPage() {
               <Th>Study</Th>
               <Th>Site</Th>
               <Th>Referred by</Th>
-              <Th>AI suggests</Th>
+              <Th>{lab ? "Flags suggest" : "AI suggests"}</Th>
               <Th>
                 <span className="sr-only">Action</span>
               </Th>

@@ -97,7 +97,7 @@ export function ReportsPage() {
       ) : tab === "ready" ? (
         ready.length === 0 ? (
           <EmptyState title="No reports yet">
-            Reports for patients you refer appear here as soon as the radiologist signs them.
+            Reports for patients you refer appear here as soon as they are signed.
           </EmptyState>
         ) : (
           <Table>
@@ -106,7 +106,7 @@ export function ReportsPage() {
                 <Th>Patient</Th>
                 <Th>Study</Th>
                 <Th>Impression</Th>
-                <Th>Radiologist</Th>
+                <Th>Signed by</Th>
                 <Th>Reported</Th>
               </tr>
             </thead>
@@ -136,7 +136,7 @@ export function ReportsPage() {
                       {study.critical && <CriticalBadge />}
                     </span>
                   </Td>
-                  <Td className="text-muted text-sm">{study.radiologist?.name}</Td>
+                  <Td className="text-muted text-sm">{study.reporter?.name}</Td>
                   <Td className="text-muted text-sm whitespace-nowrap">
                     {study.published_at ? formatDateTime(study.published_at) : ""}
                   </Td>

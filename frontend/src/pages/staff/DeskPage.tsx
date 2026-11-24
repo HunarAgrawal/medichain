@@ -1,4 +1,4 @@
-import { PlusIcon, UserPlusIcon } from "@phosphor-icons/react";
+import { FlaskIcon, PlusIcon, UserPlusIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
@@ -51,7 +51,7 @@ export function DeskPage() {
       <PageHeader
         eyebrow={user.site?.name ?? user.organization.name}
         title="Today"
-        description="Everything acquired today, and where each study is in reporting."
+        description="Every scan and lab test from today, and where each one is in reporting."
         action={
           <div className="flex flex-wrap gap-2">
             <ButtonLink
@@ -60,6 +60,13 @@ export function DeskPage() {
               icon={<UserPlusIcon aria-hidden weight="bold" className="size-4" />}
             >
               Register patient
+            </ButtonLink>
+            <ButtonLink
+              to="/studies/new?type=cbc"
+              variant="secondary"
+              icon={<FlaskIcon aria-hidden weight="bold" className="size-4" />}
+            >
+              Lab results
             </ButtonLink>
             <ButtonLink
               to="/studies/new"
@@ -114,7 +121,7 @@ export function DeskPage() {
           title="Nothing acquired yet today"
           action={<ButtonLink to="/studies/new">Start the first study</ButtonLink>}
         >
-          New studies appear here and on the radiologists' worklist as soon as they are sent.
+          New studies appear here and on the reporting worklist as soon as they are sent.
         </EmptyState>
       ) : (
         <Table>

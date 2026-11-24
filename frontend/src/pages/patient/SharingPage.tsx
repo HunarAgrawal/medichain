@@ -53,7 +53,7 @@ export function SharingPage() {
           {team.error && <PageError error={team.error} onRetry={() => void team.refetch()} />}
           {team.data?.length === 0 && (
             <EmptyState title="Not shared with anyone">
-              Only your radiologist and referring doctor can open each report.
+              Only the reporting doctor and your referring doctor can open each report.
             </EmptyState>
           )}
           {team.data && team.data.length > 0 && (

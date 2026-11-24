@@ -27,8 +27,8 @@ import { inputClass } from "../../components/ui/classes";
 import { api, type NewStaff, type StaffRole, type User } from "../../lib/api";
 import { ROLE_LABEL } from "../../lib/roles";
 
-const ROLES: StaffRole[] = ["radiologist", "technician", "doctor", "admin"];
-const CLINICAL: StaffRole[] = ["radiologist", "doctor"];
+const ROLES: StaffRole[] = ["radiologist", "pathologist", "technician", "doctor", "admin"];
+const CLINICAL: StaffRole[] = ["radiologist", "pathologist", "doctor"];
 
 export function StaffPage() {
   const me = useUser();
@@ -50,7 +50,7 @@ export function StaffPage() {
     <>
       <PageHeader
         title="Staff"
-        description="Radiologists and referring doctors are verified on the registry when added, and lose all access the moment they are deactivated."
+        description="Radiologists, pathologists and referring doctors are verified on the registry when added, and lose all access the moment they are deactivated."
         action={
           !adding && (
             <Button
@@ -258,7 +258,7 @@ function AddStaff({ onClose }: { onClose: () => void }) {
             <Field
               id="staff-title"
               label="Designation"
-              hint="e.g. Consultant Radiologist, Radiographer"
+              hint="e.g. Consultant Radiologist, Radiographer, Lab technologist"
             >
               <input
                 id="staff-title"

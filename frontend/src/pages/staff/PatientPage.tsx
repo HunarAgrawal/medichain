@@ -27,6 +27,7 @@ import { inputClass } from "../../components/ui/classes";
 import { api, type Patient } from "../../lib/api";
 import { SEX_LABEL, formatPhone, maskAbha } from "../../lib/clinical";
 import { formatDate, formatDateTime } from "../../lib/format";
+import { isReporter } from "../../lib/roles";
 
 export function PatientPage() {
   const { id = "" } = useParams();
@@ -37,7 +38,7 @@ export function PatientPage() {
     queryKey: ["studies", "patient", id],
     queryFn: () => api.studies({ patient_id: id, limit: 100 }),
   });
-  const acquires = user.role === "technician" || user.role === "radiologist";
+  const acquires = user.role === "technician" || isReporter(user.role);
 
   if (patient.isPending) return <PageLoading />;
   if (patient.isError)

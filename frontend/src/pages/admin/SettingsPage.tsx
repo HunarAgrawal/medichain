@@ -175,7 +175,7 @@ function Sites() {
         Sites
       </SectionTitle>
       <p className="text-muted -mt-2 mb-4 text-sm">
-        Radiology departments, imaging centres and partner sites reported remotely.
+        Hospital departments, imaging centres and partner sites reported remotely.
       </p>
       <ul className="divide-line divide-y">
         {sites.data?.map((site) => (
