@@ -7,8 +7,9 @@
 
 # Medichain
 
-**Radiology reporting for hospitals, imaging centres and teleradiology: AI pre-reads,
-radiologist sign-off, instant delivery and reports anyone can verify.**
+**Diagnostic reporting for hospitals, imaging centres, labs and teleradiology: AI pre-reads for
+scans, automatic flags for lab results, doctor sign-off, instant delivery and reports anyone can
+verify.**
 
 [![CI](https://github.com/HunarAgrawal/medichain/actions/workflows/ci.yml/badge.svg)](https://github.com/HunarAgrawal/medichain/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
@@ -22,41 +23,61 @@ radiologist sign-off, instant delivery and reports anyone can verify.**
 
 </div>
 
-Medichain runs the imaging workflow from the front desk to the patient:
+Medichain runs the diagnostic workflow from the front desk to the patient, for scans and lab
+tests alike:
 
 1. **Register and acquire.** The technician registers the patient (UHID issued, ABHA number
-   optional), records the referring doctor and priority, and uploads the scan.
-2. **AI pre-read.** A vision model suggests a finding and shows where it looked, in seconds.
-3. **Report and sign.** A radiologist works the worklist (STAT first, turnaround tracked against
-   targets), writes the findings and impression, flags critical results and signs.
+   optional), records the referring doctor and priority, and uploads the scan or enters the lab
+   results.
+2. **Pre-read.** For a scan, a vision model suggests a finding and shows where it looked. For a
+   lab test, every value is checked against the patient's reference interval and critical limits.
+3. **Report and sign.** A radiologist or pathologist works the worklist (STAT first, turnaround
+   tracked against targets), writes the findings and impression, flags critical results and signs.
 4. **Deliver and verify.** The PDF, on the hospital's letterhead, reaches the referring doctor and
    the patient at once. Its fingerprint is registered on a tamper-evident ledger, and anyone can
    check a copy by scanning its QR code.
 
 > **Not a medical device.** The AI models are research-grade decision support and are not
-> clinically validated. Every report is the radiologist's interpretation. Use the demo's
+> clinically validated, and the demo's reference intervals are typical adult values, not a
+> laboratory's validated ones. Every report is the signing doctor's interpretation. Use the demo's
 > fictional data, or properly consented data, only.
+
+## What it reports
+
+| Report type | In the demo | How it is pre-read |
+| --- | --- | --- |
+| **Imaging** | Chest X-ray, brain MRI | AI pre-read with an attention heatmap; a radiologist signs. |
+| **Blood tests** | Complete blood count | Values flagged against sex-specific reference intervals and critical limits; a pathologist signs. |
+| **Drug tests** | Six-panel urine screen | Each analyte negative or positive at its cutoff; reported as presumptive. |
+| **Next, per client** | CT, ultrasound, mammography; LFT, KFT, lipids, thyroid, HbA1c, histopathology; dermatology photos, ECG | A new imaging type adds a model (or none); a new lab panel adds its analytes and intervals. |
+
+Worklists, turnaround targets, signing, the PDF, delivery, consent, verification, the dashboard and
+the audit log are shared by every type, so adding one is configuration in
+[`backend/app/catalog.py`](backend/app/catalog.py) (lab panels in
+[`labs.py`](backend/app/labs.py)), not a new product.
 
 ## Who it is for
 
 | Organization | How it works for them |
 | --- | --- |
-| **Hospital** | One worklist for the radiology department; OPD and ward doctors receive reports the moment they are signed; management sees turnaround and workload. |
+| **Hospital** | Worklists for radiology and the laboratory; OPD and ward doctors receive reports the moment they are signed; management sees turnaround and workload. |
 | **Imaging centre** | Fast walk-in registration, reports for outside doctors without phone calls, and verifiable reports patients can share anywhere. |
 | **Teleradiology** | Partner sites upload, remote radiologists report, and turnaround is tracked per site. |
+| **Diagnostic lab** | Technologists enter results, abnormal and critical values flag themselves, pathologists verify and sign. |
 
-One workspace can mix all three: the demo hospital has an in-house department, an imaging centre
-and a partner clinic reported remotely.
+One workspace can mix them all: the demo hospital has an in-house radiology department and
+laboratory, an imaging centre and a partner clinic reported remotely.
 
 ## What each role does
 
 | Role | In the app |
 | --- | --- |
-| **Technician** | Registers patients, starts studies (modality, priority, referring doctor, indication, scan) and tracks the day's studies. |
-| **Radiologist** | Works the worklist, reviews the scan, heatmap and AI pre-read, writes the report from a template, flags critical findings and signs. |
+| **Technician** | Registers patients, starts studies (scan or lab test, priority, referring doctor, indication) and tracks the day's studies. Lab results are flagged as they are typed. |
+| **Radiologist** | Works the imaging worklist, reviews the scan, heatmap and AI pre-read, writes the report from a template, flags critical findings and signs. |
+| **Pathologist** | Works the lab worklist, verifies the flagged results (critical values first), writes the interpretation and signs. |
 | **Referring doctor** | Receives reports for patients they referred, critical findings first, and records patients share with them. |
 | **Patient** | Reads their reports, shares them with doctors or withdraws access, and sees who opened each one. |
-| **Admin** | Sees volume, turnaround, AI agreement and workload by site and radiologist; manages staff, sites and the letterhead; reads the audit log. Never sees clinical content. |
+| **Admin** | Sees volume by department, turnaround, AI agreement and workload by site and reporting doctor; manages staff, sites and the letterhead; reads the audit log. Never sees clinical content. |
 | **Anyone** | Checks that a report PDF is genuine and unaltered on the public `/verify` page. |
 
 <table>
@@ -100,6 +121,8 @@ roles in one click. Every start is a fresh demo hospital with a month of history
 | Rahul Verma | Technician | Register a walk-in patient and send a chest X-ray for reporting, using a sample scan |
 | Dr. Ananya Rao | Radiologist | Report the STAT chest X-ray at the top of the worklist |
 | Dr. Vikram Iyer | Teleradiologist | Report the partner clinic's studies remotely |
+| Imran Sheikh | Lab technologist | Enter a blood count and watch abnormal values flag themselves |
+| Dr. Farah Siddiqui | Pathologist | Verify the STAT blood count with a critical haemoglobin and sign it |
 | Dr. Arjun Mehta | Referring doctor | See reports arrive the moment they are signed |
 | Priya Sharma | Patient | Open a report, share it with a doctor, see who opened it |
 | Neha Kapoor | Admin | Dashboard, staff, sites, letterhead and audit log |
@@ -130,14 +153,15 @@ Technician                    Medichain API                           Ledger / s
 ──────────                    ─────────────                           ────────────────
 register patient ──────────▶  UHID, custodial wallet
 upload scan ───────────────▶  validate, run ViT, attention heatmap
-                              queue on the worklist (scan sealed)
-Radiologist
-───────────
+  or enter lab results ────▶  flag against reference intervals
+                              queue on the worklist (source sealed)
+Radiologist or pathologist
+──────────────────────────
 report + sign ─────────────▶  render PDF on the letterhead (QR)
                               seal scan + PDF, store ciphertext ─────▶  encrypted file store
                               publishRecord(recordId, patient,
                                 referrer, reportSHA256, IDs) ────────▶  MediChainRegistry
-                                signed with the radiologist's key
+                                signed with the reporting doctor's key
 
 Doctor or patient opens it ▶  getRecord() from their own address
                               (the contract decides), decrypt,
@@ -153,9 +177,9 @@ Anyone verifies a PDF ─────▶  SHA-256 → verifyReport() ───�
 | Tenancy | Every patient, study, site and audit entry belongs to one organization. Every query is scoped to the signed-in user's organization; other tenants' records look like missing ones. |
 | Sign-in | Email and password hashed with scrypt; timing-safe checks; per-IP and per-account rate limits. Opaque server-side sessions in an `HttpOnly`, `SameSite=Strict` cookie, revocable at any time. Patients without portal access cannot sign in at all. |
 | Request forgery | Same-origin API, strict CORS allowlist, and a required `X-Requested-With` header on every state-changing request. |
-| Authorization | Role guards on every endpoint. Technicians and waiting referrers see status, never clinical content. For signed reports the contract is the authority: the API calls `getRecord` *from the user's address*, and only the patient, the signing radiologist, the referring doctor and doctors the patient chose can read it. Deactivating a clinician removes their registry status and with it all access. |
-| Keys | Each patient, radiologist and doctor has a platform-held Ethereum key, sealed with `WALLET_ENCRYPTION_KEY` and bound to the account. On-chain actions are signed by the person who took them. An operator key owns the registry. |
-| Confidentiality | Scans and reports are sealed with AES-256-GCM before storage, bound to their study and file kind. The ledger holds no names or IDs: patients are addresses and record IDs are random. Admins see aggregates and metadata only. |
+| Authorization | Role guards on every endpoint. Technicians and waiting referrers see status, never clinical content. For signed reports the contract is the authority: the API calls `getRecord` *from the user's address*, and only the patient, the signing radiologist or pathologist, the referring doctor and doctors the patient chose can read it. Deactivating a clinician removes their registry status and with it all access. |
+| Keys | Each patient, radiologist, pathologist and doctor has a platform-held Ethereum key, sealed with `WALLET_ENCRYPTION_KEY` and bound to the account. On-chain actions are signed by the person who took them. An operator key owns the registry. |
+| Confidentiality | Scans, lab results and reports are sealed with AES-256-GCM before storage, bound to their study and file kind. The ledger holds no names or IDs: patients are addresses and record IDs are random. Admins see aggregates and metadata only. |
 | Integrity | The report's SHA-256 is anchored on the ledger, checked on every download, and publicly verifiable. Ciphertexts cannot be swapped between records. |
 | Hardening | Upload type, size and pixel limits; decompression-bomb guard; strict validation; security headers and a strict CSP; no stack traces in responses; logs record route templates, never IDs; models load only from `safetensors`; unsafe production settings refuse to start. |
 | Public on the ledger | Addresses, record IDs, IDs of ciphertext files, report hashes and timestamps. |
@@ -171,6 +195,11 @@ Both are ViT-B/16 fine-tunes (86M parameters, Apache-2.0), about 70 ms per image
 accuracies are the authors' validation figures, not clinical validation. Swap models with
 `BRAIN_TUMOR_MODEL` / `CHEST_XRAY_MODEL`; ViT models get attention rollout heatmaps and CNNs get
 Grad-CAM.
+
+Lab panels use no model: [`labs.py`](backend/app/labs.py) flags each value as low, high or
+critical against sex-specific reference intervals and suggests a finding from the pattern (for
+example, low haemoglobin suggests anaemia). The intervals are typical adult values for the demo; a
+laboratory replaces them with its own validated ones.
 
 ## Repository layout
 
@@ -193,7 +222,7 @@ All routes are under `/api/v1`. Interactive docs are at `/docs` when `ENABLE_DOC
 | Public | `GET /health`, `GET /meta`, `POST /verify` |
 | Session | `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/password` |
 | Patients | `GET/POST /patients`, `GET /patients/{id}`, `POST /patients/{id}/portal` |
-| Studies | `POST /studies`, `GET /studies`, `GET /studies/{id}`, `POST /studies/{id}/publish`, `DELETE /studies/{id}`, `GET /studies/{id}/files/{scan\|report\|heatmap}`, `GET /studies/{id}/activity` |
+| Studies | `POST /studies` (scan), `POST /studies/lab` (lab results), `GET /studies`, `GET /studies/{id}`, `POST /studies/{id}/publish`, `DELETE /studies/{id}`, `GET /studies/{id}/files/{scan\|report\|heatmap}`, `GET /studies/{id}/activity` |
 | People | `GET/POST /sharing`, `DELETE /sharing/{clinician_id}`, `GET /directory/clinicians`, `GET /sites`, `GET /activity` |
 | Admin | `GET /admin/dashboard`, `GET/POST /admin/users`, `PATCH /admin/users/{id}`, `GET/PATCH /admin/organization`, `GET/POST /admin/sites`, `GET /admin/audit` |
 
@@ -220,14 +249,16 @@ own origin, and Vite proxies that to the API in development.
 Medichain is ready to demonstrate and to pilot on non-clinical or consented data. A production
 deployment for a hospital needs, at least:
 
-- **Imaging integration:** DICOM import and PACS, HL7 and FHIR integration (today: PNG/JPEG upload).
+- **Integration:** DICOM import and PACS for imaging, analyser interfaces (ASTM/HL7) and a LIS for
+  the laboratory, and HL7/FHIR for the hospital (today: PNG/JPEG upload and typed lab results).
 - **Clinical validation** of the models on the client's own data, and an assessment under India's
-  medical device rules (CDSCO) for AI that informs diagnosis.
+  medical device rules (CDSCO) for AI that informs diagnosis. Laboratories set their own validated
+  reference intervals and critical limits, and NABL requirements apply to lab reports.
 - **ABDM integration** as a health information provider (ABHA numbers are captured today).
 - **Identity:** SSO, multi-factor sign-in, password reset, and a KMS or HSM for keys.
 - **Operations:** database migrations, backups, monitoring, an SLA and a data processing agreement.
-- **Reporting depth:** more modalities, addenda to signed reports, and critical-result
-  acknowledgement.
+- **Reporting depth:** more modalities and lab panels, addenda to signed reports, delta checks
+  against previous results, and critical-result acknowledgement.
 
 ## Contributing
 

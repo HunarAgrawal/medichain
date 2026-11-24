@@ -6,25 +6,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.4.0] - 2026-11-18
+## [0.4.0] - 2026-11-24
 
-The hospital edition: a demo-ready product for hospitals, imaging centres and teleradiology.
+The hospital edition: a demo-ready product for hospitals, imaging centres, diagnostic labs and
+teleradiology.
 
 ### Added
 
 - Organizations (a hospital, imaging centre or teleradiology provider) with sites, editable
   letterhead details and tenant-scoped data.
-- Hospital roles: technician, radiologist, referring doctor, patient and admin, each with its own
-  pages.
+- Hospital roles: technician, radiologist, pathologist, referring doctor, patient and admin, each
+  with its own pages.
+- Laboratory reporting alongside imaging: complete blood count and urine drug screen panels,
+  results flagged as they are typed against sex-specific reference intervals and critical limits,
+  a pathologist worklist, and a lab report PDF with the results table. Each reporting doctor signs
+  only their own discipline.
 - A patient registry with automatic UHIDs, optional ABHA numbers and optional patient-portal access.
 - Studies with accession numbers, priority (routine, urgent or STAT), clinical indication, site and
   referring doctor, and a worklist ordered by priority and waiting time against targets.
 - Reports with findings, impression and a critical-finding flag, templates per finding, and a PDF on
   the hospital's letterhead with the radiologist's registration number and times in IST.
 - Referring doctors can read the reports they referred: the registry records each report's referrer.
-- An operations dashboard: volume by modality, turnaround against target, AI agreement, critical
-  findings, and load per site and per radiologist.
-- A landing page, one-click demo roles with a presenter bar, and sample scans for new studies.
+- An operations dashboard: volume by department, turnaround against target, AI agreement for
+  imaging, critical findings, and load per site and per reporting doctor.
+- A landing page that shows every report type (live in the demo, or configurable per client),
+  one-click demo roles with a presenter bar, sample scans and sample lab results.
 - A one-command demo image (`make demo`), a free Hugging Face Space, a demo guide and a
   hosted-demo guide.
 - Fifteen more openly licensed sample scans, including two the models get wrong.
@@ -40,8 +46,12 @@ The hospital edition: a demo-ready product for hospitals, imaging centres and te
 
 ### Removed
 
-- The single clinician role (now radiologist and referring doctor) and the admin overview page (now
-  the dashboard).
+- The single clinician role (now radiologist, pathologist and referring doctor) and the admin
+  overview page (now the dashboard).
+
+### Security
+
+- The seed script no longer writes the demo password to its log (CodeQL clear-text logging alert).
 
 ## [0.3.0] - 2026-10-23
 
