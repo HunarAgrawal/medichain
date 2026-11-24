@@ -53,7 +53,7 @@ async def stop_sharing(
 async def search_clinicians(
     user: StudyViewer, db: DbDep, q: Search = "", role: Role | None = None
 ) -> list[UserSummary]:
-    """Doctors and radiologists in the user's organization (for sharing and referrals)."""
+    """Doctors, radiologists and pathologists in the organization (for sharing and referrals)."""
     roles = [role] if role in CLINICIAN_ROLES else list(CLINICIAN_ROLES)
     query = select(User).where(
         User.org_id == user.org_id, User.role.in_(roles), User.is_active.is_(True)

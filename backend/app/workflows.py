@@ -2,13 +2,14 @@
 seed script call these; this is where the access rules live.
 
 Everything is scoped to the signed-in user's organization. For published studies the contract
-remains the authority: it decides who may read a record (the patient, the reporting radiologist,
+remains the authority: it decides who may read a record (the patient, the reporting doctor,
 the referring doctor and anyone the patient has shared with).
 """
 
 import asyncio
 import hashlib
 import io
+import json
 import secrets
 from collections import defaultdict
 from datetime import UTC, date, datetime
@@ -21,15 +22,16 @@ from sqlalchemy.exc import IntegrityError as DbIntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from app import audit
+from app import audit, labs
 from app.audit import Action
 from app.auth import hash_password
+from app.catalog import DEPARTMENT, STUDY_TYPES, Discipline
 from app.crypto import IntegrityError, seal, unseal
 from app.imaging import Scan, decode_scan
-from app.ml.catalog import ANALYSIS_TYPES
 from app.ml.engine import Prediction
 from app.models import (
     CLINICIAN_ROLES,
+    REPORTING_DISCIPLINE,
     WALLET_ROLES,
     Organization,
     OrgKind,
@@ -136,9 +138,11 @@ async def study_view(svc: Services, user: User, study: Study) -> View | None:
             return View.FULL if published and study.patient_id == user.id else None
         case Role.TECHNICIAN:
             return View.STATUS
-        case Role.RADIOLOGIST:
+        case Role.RADIOLOGIST | Role.PATHOLOGIST:
             if not published:
-                return View.FULL  # any radiologist in the organization can report a draft
+                # Any reporter of the study's discipline in the organization can report a draft.
+                own = study.discipline == REPORTING_DISCIPLINE[user.role]
+                return View.FULL if own else View.STATUS
             return View.FULL if await _chain_allows(svc, user, study) else View.STATUS
         case Role.DOCTOR:
             if published and await _chain_allows(svc, user, study):
@@ -162,9 +166,10 @@ def list_view(user: User, study: Study, shared_patient_ids: set[str]) -> View:
         return View.FULL
     if user.role is Role.TECHNICIAN:
         return View.STATUS
+    discipline = REPORTING_DISCIPLINE.get(user.role)
     if study.status is StudyStatus.DRAFT:
-        return View.FULL if user.role is Role.RADIOLOGIST else View.STATUS
-    own = study.radiologist_id if user.role is Role.RADIOLOGIST else study.referrer_id
+        return View.FULL if study.discipline == discipline else View.STATUS
+    own = study.reporter_id if discipline else study.referrer_id
     return View.FULL if own == user.id or study.patient_id in shared_patient_ids else View.STATUS
 
 
@@ -208,10 +213,14 @@ async def visible_studies(
             query = query.where(Study.patient_id == user.id, Study.status == StudyStatus.PUBLISHED)
         case Role.TECHNICIAN:
             pass
-        case Role.RADIOLOGIST | Role.DOCTOR:
+        case Role.RADIOLOGIST | Role.PATHOLOGIST | Role.DOCTOR:
+            discipline = REPORTING_DISCIPLINE.get(user.role)
             own = (
-                or_(Study.status == StudyStatus.DRAFT, Study.radiologist_id == user.id)
-                if user.role is Role.RADIOLOGIST
+                or_(
+                    (Study.status == StudyStatus.DRAFT) & (Study.discipline == discipline),
+                    Study.reporter_id == user.id,
+                )
+                if discipline
                 else Study.referrer_id == user.id
             )
             query = query.where(
@@ -384,6 +393,7 @@ async def create_study(
         referrer=referrer,
         referrer_name=None if referrer else referrer_name,
         analysis_type=analysis_type,
+        discipline=Discipline.RADIOLOGY,
         priority=priority,
         indication=indication,
         status=StudyStatus.DRAFT,
@@ -403,12 +413,72 @@ async def create_study(
     return study
 
 
+# The "model" behind a lab study's suggested finding: reference intervals, not machine learning.
+LAB_FLAGGING = "reference-intervals"
+
+
+async def create_lab_study(
+    svc: Services,
+    db: AsyncSession,
+    *,
+    actor: User,
+    patient: User,
+    site: Site,
+    panel_id: str,
+    priority: Priority,
+    values: dict[str, object],
+    indication: str | None = None,
+    referrer: User | None = None,
+    referrer_name: str | None = None,
+    collected_at: datetime | None = None,
+) -> Study:
+    """Store a laboratory panel's results, flag them against reference intervals and queue the
+    study for a pathologist. The submitted values are the study's sealed source data."""
+    panel = labs.LAB_PANELS[panel_id]
+    try:
+        results = labs.evaluate(panel, values, patient.sex)
+    except labs.LabValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+    source = json.dumps(
+        {"panel": panel.id, "values": {r.code: r.value for r in results}}, sort_keys=True
+    ).encode()
+    key = svc.settings.encryption_key_bytes
+    when = collected_at or datetime.now(UTC)
+    study = Study(
+        id=new_id(),
+        org_id=actor.org_id,
+        site=site,
+        accession=await next_accession(db, actor.org_id, when),
+        patient=patient,
+        created_by=actor,
+        referrer=referrer,
+        referrer_name=None if referrer else referrer_name,
+        analysis_type=panel.id,
+        discipline=Discipline.LABORATORY,
+        priority=priority,
+        indication=indication,
+        status=StudyStatus.DRAFT,
+        model_id=LAB_FLAGGING,
+        predictions=[{"label": labs.suggest(panel, results), "score": 1.0}],
+        results=[r.as_dict() for r in results],
+        scan_media_type="application/json",
+        scan_sha256=hashlib.sha256(source).hexdigest(),
+        created_at=when,
+    )
+    study.draft_scan = seal(key, source, kind="scan", subject=study.id)
+    db.add(study)
+    await db.flush()
+    audit.record(db, Action.STUDY_CREATED, actor=actor, study_id=study.id, target=patient, at=when)
+    await db.commit()
+    return study
+
+
 async def publish_study(
     svc: Services,
     db: AsyncSession,
     *,
     study: Study,
-    radiologist: User,
+    reporter: User,
     final_finding: str,
     impression: str,
     findings: str | None = None,
@@ -420,18 +490,21 @@ async def publish_study(
         await db.refresh(study)
         if study.status is not StudyStatus.DRAFT or study.draft_scan is None:
             raise HTTPException(status.HTTP_409_CONFLICT, "This study has already been reported.")
-        if not await svc.registry.is_clinician(wallet(radiologist)):
+        if REPORTING_DISCIPLINE.get(reporter.role) != study.discipline:
+            signer = "pathologist" if study.discipline is Discipline.LABORATORY else "radiologist"
+            raise forbidden(f"Only a {signer} can sign this report.")
+        if not await svc.registry.is_clinician(wallet(reporter)):
             raise forbidden("Your account is not verified on the registry yet.")
 
         key = svc.settings.encryption_key_bytes
-        scan = decode_scan(unseal(key, study.draft_scan, kind="scan", subject=study.id))
-        heatmap = (
-            Image.open(io.BytesIO(unseal(key, study.heatmap, kind="heatmap", subject=study.id)))
-            if study.heatmap
-            else None
-        )
-        org = radiologist.organization
-        analysis = ANALYSIS_TYPES[study.analysis_type]
+        scan = heatmap = None
+        if study.discipline is Discipline.RADIOLOGY:
+            scan = decode_scan(unseal(key, study.draft_scan, kind="scan", subject=study.id)).image
+            if study.heatmap:
+                sealed = unseal(key, study.heatmap, kind="heatmap", subject=study.id)
+                heatmap = Image.open(io.BytesIO(sealed))
+        org = reporter.organization
+        analysis = STUDY_TYPES[study.analysis_type]
         record_id = "0x" + secrets.token_hex(32)
         signed_at = published_at or datetime.now(UTC)
         app_url = svc.settings.public_app_url.rstrip("/")
@@ -441,7 +514,7 @@ async def publish_study(
             ReportInput(
                 letterhead=Letterhead(
                     name=org.name,
-                    department=org.department,
+                    department=DEPARTMENT.get(study.discipline, org.department),
                     address=", ".join(p for p in (org.address, org.city) if p),
                     contact=" · ".join(p for p in (org.phone, org.email) if p),
                     accreditation=org.accreditation,
@@ -469,12 +542,13 @@ async def publish_study(
                 findings=findings,
                 impression=impression,
                 critical=critical,
-                radiologist_name=radiologist.name,
-                radiologist_title=radiologist.title,
-                radiologist_qualification=radiologist.qualification,
-                radiologist_registration=radiologist.registration_number,
-                scan=scan.image,
+                reporter_name=reporter.name,
+                reporter_title=reporter.title,
+                reporter_qualification=reporter.qualification,
+                reporter_registration=reporter.registration_number,
+                scan=scan,
                 heatmap=heatmap,
+                lab_results=study.results,
                 scan_sha256=study.scan_sha256,
                 verify_url=f"{app_url}/verify?record={record_id}",
             ),
@@ -487,7 +561,7 @@ async def publish_study(
             ),
         )
         tx_hash = await svc.registry.publish_record(
-            svc.vault.signer(radiologist),
+            svc.vault.signer(reporter),
             record_id,
             wallet(study.patient),
             referrer.wallet_address if referrer else None,
@@ -497,7 +571,7 @@ async def publish_study(
         )
 
         study.status = StudyStatus.PUBLISHED
-        study.radiologist = radiologist
+        study.reporter = reporter
         study.final_finding = final_finding
         study.findings = findings
         study.impression = impression
@@ -512,7 +586,7 @@ async def publish_study(
         audit.record(
             db,
             Action.STUDY_PUBLISHED,
-            actor=radiologist,
+            actor=reporter,
             study_id=study.id,
             target=study.patient,
             tx_hash=tx_hash,
@@ -522,7 +596,7 @@ async def publish_study(
             audit.record(
                 db,
                 Action.CRITICAL_FINDING,
-                actor=radiologist,
+                actor=reporter,
                 study_id=study.id,
                 target=referrer or study.patient,
                 at=signed_at,

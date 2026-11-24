@@ -70,18 +70,26 @@ def test_meta_lists_demo_personas_only_in_demo_mode(env: Env, tmp_path) -> None:
     env.organization()
     meta = env.client.get("/api/v1/meta").json()
     personas = meta["demo"]["personas"]
-    assert [p["role"] for p in personas] == [
-        "technician",
-        "radiologist",
-        "radiologist",
-        "doctor",
-        "patient",
-        "admin",
+    assert [p["label"] for p in personas] == [
+        "Radiographer",
+        "Radiologist",
+        "Teleradiologist",
+        "Lab technologist",
+        "Pathologist",
+        "Referring doctor",
+        "Patient",
+        "Admin",
     ]
+    assert personas[4]["role"] == "pathologist"
     assert meta["demo"]["workspace"]["name"] == "Test Hospital 1"
     assert meta["tat_targets_minutes"] == {"stat": 60, "urgent": 240, "routine": 1440}
     assert meta["chain"]["contract_address"] == CONTRACT_ADDRESS
-    assert {t["id"] for t in meta["analysis_types"]} == {"brain_tumor", "chest_xray"}
+    types = {t["id"]: t for t in meta["study_types"]}
+    assert set(types) == {"brain_tumor", "chest_xray", "cbc", "drug_screen"}
+    assert types["chest_xray"]["ai"] and types["chest_xray"]["discipline"] == "radiology"
+    assert not types["cbc"]["ai"] and types["cbc"]["discipline"] == "laboratory"
+    hb = types["cbc"]["analytes"][0]
+    assert hb["code"] == "hb" and hb["reference"] == {"F": [12.0, 15.0], "M": [13.0, 17.0]}
 
     quiet = build_services(make_settings(tmp_path / "quiet", demo_mode=False))
     with TestClient(create_app(services=quiet)) as client:

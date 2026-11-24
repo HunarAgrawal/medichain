@@ -2,6 +2,7 @@ from fastapi import APIRouter, Response
 from sqlalchemy import select
 
 from app import workflows
+from app.catalog import STUDY_TYPES, Discipline
 from app.demo import (
     DEMO_PASSWORD,
     DEMO_SAMPLES,
@@ -13,17 +14,18 @@ from app.demo import (
 )
 from app.deps import CurrentUser, DbDep, ServicesDep
 from app.imaging import media_type_of
-from app.ml.catalog import ANALYSIS_TYPES
+from app.labs import LAB_PANELS
 from app.models import TAT_TARGET_MINUTES, Organization, Role
 from app.presenters import org_summary
 from app.schemas import (
-    AnalysisTypeInfo,
+    AnalyteInfo,
     ChainInfo,
     DemoInfo,
     DemoPersona,
     DemoSample,
     DemoSamples,
     MetaResponse,
+    StudyTypeInfo,
 )
 
 router = APIRouter(tags=["system"])
@@ -43,16 +45,22 @@ async def meta(svc: ServicesDep, db: DbDep) -> MetaResponse:
         workspace = await db.scalar(select(Organization).order_by(Organization.created_at))
         personas = [
             DemoPersona(
-                role=s.role, name=s.name, email=s.email, title=s.title, description=s.persona
+                role=s.role,
+                label=s.label,
+                name=s.name,
+                email=s.email,
+                title=s.title,
+                description=s.persona,
             )
             for s in DEMO_STAFF
-            if s.persona
+            if s.persona and s.label
         ]
         if PRIYA.portal_email:
             personas.insert(
                 -1,
                 DemoPersona(
                     role=Role.PATIENT,
+                    label="Patient",
                     name=PRIYA.name,
                     email=PRIYA.portal_email,
                     title="Patient",
@@ -65,16 +73,7 @@ async def meta(svc: ServicesDep, db: DbDep) -> MetaResponse:
             personas=personas,
         )
     return MetaResponse(
-        analysis_types=[
-            AnalysisTypeInfo(
-                id=t.id,
-                name=t.name,
-                modality=t.modality,
-                description=t.description,
-                labels=list(t.labels.values()),
-            )
-            for t in ANALYSIS_TYPES.values()
-        ],
+        study_types=[_study_type(t.id) for t in STUDY_TYPES.values()],
         max_upload_mb=settings.max_upload_mb,
         tat_targets_minutes=TAT_TARGET_MINUTES,
         chain=ChainInfo(
@@ -83,6 +82,34 @@ async def meta(svc: ServicesDep, db: DbDep) -> MetaResponse:
             explorer_url=settings.explorer_url,
         ),
         demo=demo,
+    )
+
+
+def _study_type(type_id: str) -> StudyTypeInfo:
+    t = STUDY_TYPES[type_id]
+    panel = LAB_PANELS.get(t.id)
+    return StudyTypeInfo(
+        id=t.id,
+        name=t.name,
+        modality=t.modality,
+        discipline=t.discipline,
+        description=t.description,
+        labels=list(t.labels),
+        ai=t.discipline is Discipline.RADIOLOGY,
+        analytes=[
+            AnalyteInfo(
+                code=a.code,
+                name=a.name,
+                unit=a.unit,
+                kind=a.kind,
+                reference=dict(a.reference),
+                critical_low=a.critical_low,
+                critical_high=a.critical_high,
+                decimals=a.decimals,
+                cutoff=a.cutoff,
+            )
+            for a in (panel.analytes if panel else ())
+        ],
     )
 
 

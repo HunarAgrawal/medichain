@@ -1,5 +1,6 @@
-"""PDF report rendering: the hospital's letterhead, the radiologist's signed report, the AI
-pre-read as decision support, and the data needed to verify the PDF."""
+"""PDF report rendering: the organization's letterhead, the signed report (imaging with its AI
+pre-read as decision support, or laboratory results flagged against reference intervals), and the
+data needed to verify the PDF."""
 
 import io
 from dataclasses import dataclass
@@ -88,14 +89,15 @@ class ReportInput:
     findings: str | None
     impression: str
     critical: bool
-    radiologist_name: str
-    radiologist_title: str | None
-    radiologist_qualification: str | None
-    radiologist_registration: str | None
-    scan: Image.Image
+    reporter_name: str
+    reporter_title: str | None
+    reporter_qualification: str | None
+    reporter_registration: str | None
+    scan: Image.Image | None
     heatmap: Image.Image | None
     scan_sha256: str
     verify_url: str
+    lab_results: list[dict[str, object]] | None = None
 
 
 def render_report(data: ReportInput) -> bytes:
@@ -126,18 +128,31 @@ def render_report(data: ReportInput) -> bytes:
     if data.indication:
         story += [Paragraph("Clinical indication", _HEADING), _multiline(data.indication)]
         story.append(Spacer(1, 2.5 * mm))
+    lab = data.lab_results is not None
+    if data.lab_results is not None:
+        results = _lab_table(data.lab_results, width)
+        story += [KeepTogether([Paragraph("Results", _HEADING), results]), Spacer(1, 3.5 * mm)]
     if data.findings:
-        story += [Paragraph("Findings", _HEADING), _multiline(data.findings)]
+        story += [Paragraph("Comments" if lab else "Findings", _HEADING), _multiline(data.findings)]
         story.append(Spacer(1, 2.5 * mm))
+    heading = "Interpretation" if lab else "Impression"
     story += [
-        KeepTogether([Paragraph("Impression", _HEADING), _impression_block(data, width)]),
+        KeepTogether([Paragraph(heading, _HEADING), _impression_block(data, width)]),
         Spacer(1, 3.5 * mm),
-        KeepTogether(
-            [Paragraph("AI pre-read (decision support)", _HEADING), _ai_block(data, width)]
-        ),
-        Spacer(1, 4 * mm),
-        KeepTogether([_signature_and_verification(data, width, zone)]),
     ]
+    if lab:
+        story.append(
+            _text(
+                "Results are flagged automatically against the biological reference intervals "
+                "shown (L/H: outside the interval; LL/HH: critical; POS: above the screening "
+                "cutoff) and verified by the pathologist. Screening results are presumptive.",
+                _MUTED,
+            )
+        )
+    else:
+        ai = [Paragraph("AI pre-read (decision support)", _HEADING), _ai_block(data, width)]
+        story.append(KeepTogether(ai))
+    story += [Spacer(1, 4 * mm), KeepTogether([_signature_and_verification(data, width, zone)])]
     doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
     return buffer.getvalue()
 
@@ -151,8 +166,8 @@ def _footer(canvas: Canvas, doc: SimpleDocTemplate) -> None:
     canvas.drawString(
         doc.leftMargin,
         8.5 * mm,
-        "AI findings are decision support, not a diagnosis. This report is the radiologist's "
-        "interpretation and should be read with the clinical context.",
+        "AI pre-reads and result flags are decision support. This report is the signing "
+        "doctor's interpretation; read it with the clinical context.",
     )
     canvas.drawRightString(doc.pagesize[0] - doc.rightMargin, 8.5 * mm, f"Page {doc.page}")
     canvas.restoreState()
@@ -225,7 +240,10 @@ def _patient_table(data: ReportInput, width: float, zone: ZoneInfo) -> Table:
         ("Accession", data.accession),
         ("Referred by", data.referred_by or "Self"),
         ("Site", data.site_name),
-        ("Acquired", _when(data.acquired_at, zone)),
+        (
+            "Collected" if data.lab_results is not None else "Acquired",
+            _when(data.acquired_at, zone),
+        ),
         ("Reported", _when(data.published_at, zone)),
     ]
     rows = [
@@ -251,7 +269,14 @@ def _patient_table(data: ReportInput, width: float, zone: ZoneInfo) -> Table:
 
 def _critical_banner(width: float) -> Table:
     table = Table(
-        [[_text("CRITICAL FINDING · flagged by the radiologist for urgent attention", _CRITICAL)]],
+        [
+            [
+                _text(
+                    "CRITICAL FINDING · flagged by the reporting doctor for urgent attention",
+                    _CRITICAL,
+                )
+            ]
+        ],
         colWidths=[width],
     )
     table.setStyle(
@@ -304,7 +329,7 @@ def _ai_block(data: ReportInput, width: float) -> Table:
         _text(f"Model: {data.model_id}", _MUTED),
     ]
     side = 30 * mm
-    if data.heatmap is None:
+    if data.heatmap is None or data.scan is None:
         return Table([[text]], colWidths=[width], style=[("LEFTPADDING", (0, 0), (-1, -1), 0)])
     images = Table(
         [
@@ -331,16 +356,14 @@ def _ai_block(data: ReportInput, width: float) -> Table:
 
 
 def _signature_and_verification(data: ReportInput, width: float, zone: ZoneInfo) -> Table:
-    credentials = ", ".join(
-        p for p in (data.radiologist_qualification, data.radiologist_title) if p
-    )
+    credentials = ", ".join(p for p in (data.reporter_qualification, data.reporter_title) if p)
     signature = [
         _text("ELECTRONICALLY SIGNED BY", _LABEL),
         Spacer(1, 1 * mm),
-        _text(data.radiologist_name, _IMPRESSION),
+        _text(data.reporter_name, _IMPRESSION),
         _text(credentials, _MUTED) if credentials else Spacer(1, 0),
-        _text(f"Reg. No. {data.radiologist_registration}", _MUTED)
-        if data.radiologist_registration
+        _text(f"Reg. No. {data.reporter_registration}", _MUTED)
+        if data.reporter_registration
         else Spacer(1, 0),
         _text(_when(data.published_at, zone), _MUTED),
     ]
@@ -375,6 +398,44 @@ def _signature_and_verification(data: ReportInput, width: float, zone: ZoneInfo)
                 ("LEFTPADDING", (0, 0), (-1, -1), 0),
                 ("RIGHTPADDING", (0, 0), (1, 0), 5 * mm),
                 ("ALIGN", (2, 0), (2, 0), "RIGHT"),
+            ]
+        )
+    )
+    return table
+
+
+_FLAG_STYLE = ParagraphStyle("flag", parent=_BASE, fontName="Helvetica-Bold")
+_CRITICAL_FLAG = ParagraphStyle("criticalflag", parent=_FLAG_STYLE, textColor=BAD)
+
+
+def _lab_table(results: list[dict[str, object]], width: float) -> Table:
+    header = [_text(h, _LABEL) for h in ("TEST", "RESULT", "UNIT", "REFERENCE INTERVAL", "FLAG")]
+    rows = [header]
+    for row in results:
+        flag = str(row.get("flag") or "")
+        shown = str(row.get("text") or row["value"])
+        style = _CRITICAL_FLAG if flag in ("LL", "HH") else _FLAG_STYLE if flag else _BASE
+        rows.append(
+            [
+                _text(row["name"]),
+                _text(shown, style),
+                _text(row.get("unit") or "", _MUTED),
+                _text(row.get("reference") or "", _MUTED),
+                _text(flag, style),
+            ]
+        )
+    table = Table(
+        rows, colWidths=[width * 0.34, width * 0.16, width * 0.14, width * 0.26, width * 0.10]
+    )
+    table.setStyle(
+        TableStyle(
+            [
+                ("LINEBELOW", (0, 0), (-1, 0), 0.6, INK),
+                ("LINEBELOW", (0, 1), (-1, -1), 0.3, RULE),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ]
         )
     )

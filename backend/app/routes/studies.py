@@ -6,21 +6,32 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import workflows
+from app.catalog import Discipline
 from app.deps import (
     AcquiringUser,
     DbDep,
-    RadiologistUser,
+    ReporterUser,
     ServicesDep,
     StudyViewer,
     enforce_rate_limit,
 )
 from app.imaging import decode_scan, read_upload
 from app.ml.catalog import AnalysisTypeId
-from app.models import AuditEvent, Priority, Role, Site, Study, StudyStatus, User
+from app.models import (
+    REPORTING_DISCIPLINE,
+    AuditEvent,
+    Priority,
+    Role,
+    Site,
+    Study,
+    StudyStatus,
+    User,
+)
 from app.presenters import audit_event, study_detail, study_summary
 from app.schemas import (
     AuditEventOut,
     FileKind,
+    LabStudyCreate,
     Limit,
     Offset,
     PublishRequest,
@@ -32,7 +43,12 @@ from app.workflows import View
 
 router = APIRouter(prefix="/studies", tags=["studies"])
 
-_EXTENSIONS = {"application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpg"}
+_EXTENSIONS = {
+    "application/pdf": "pdf",
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "application/json": "json",
+}
 OptionalForm = Annotated[str | None, Form(max_length=300)]
 
 
@@ -62,14 +78,11 @@ async def create_study(
     referrer_name: Annotated[str | None, Form(max_length=100)] = None,
 ) -> StudyDetail:
     """Store a newly acquired scan, run the AI pre-read and add it to the reporting worklist."""
+    _check_discipline(actor, Discipline.RADIOLOGY)
     enforce_rate_limit(svc.limits.analysis, actor.id)
     patient = await workflows.org_patient(db, actor.org_id, patient_id)
     site = await _site_for(db, actor, site_id)
-    referrer = None
-    if referrer_id:
-        referrer = await workflows.find_clinician(db, actor.org_id, referrer_id)
-        if referrer.role is not Role.DOCTOR:
-            raise workflows.not_found("Doctor")
+    referrer = await _referrer(db, actor, referrer_id)
     data = await read_upload(file, svc.settings.max_upload_bytes)
     study = await workflows.create_study(
         svc,
@@ -85,6 +98,48 @@ async def create_study(
         referrer_name=(referrer_name or "").strip() or None,
     )
     return study_detail(study, await workflows.study_view(svc, actor, study) or View.STATUS)
+
+
+@router.post("/lab", status_code=status.HTTP_201_CREATED)
+async def create_lab_study(
+    body: LabStudyCreate, actor: AcquiringUser, svc: ServicesDep, db: DbDep
+) -> StudyDetail:
+    """Record a laboratory panel's results, flag them against reference intervals and add the
+    study to the pathologist's worklist."""
+    _check_discipline(actor, Discipline.LABORATORY)
+    patient = await workflows.org_patient(db, actor.org_id, body.patient_id)
+    site = await _site_for(db, actor, body.site_id)
+    referrer = await _referrer(db, actor, body.referrer_id)
+    study = await workflows.create_lab_study(
+        svc,
+        db,
+        actor=actor,
+        patient=patient,
+        site=site,
+        panel_id=body.panel,
+        priority=body.priority,
+        values=dict(body.values),
+        indication=(body.indication or "").strip() or None,
+        referrer=referrer,
+        referrer_name=(body.referrer_name or "").strip() or None,
+    )
+    return study_detail(study, await workflows.study_view(svc, actor, study) or View.STATUS)
+
+
+def _check_discipline(actor: User, discipline: Discipline) -> None:
+    """Technicians acquire anything; a reporting doctor acquires only for their own discipline."""
+    own = REPORTING_DISCIPLINE.get(actor.role)
+    if own is not None and own is not discipline:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Your role cannot add this kind of study.")
+
+
+async def _referrer(db: AsyncSession, actor: User, referrer_id: str | None) -> User | None:
+    if not referrer_id:
+        return None
+    referrer = await workflows.find_clinician(db, actor.org_id, referrer_id)
+    if referrer.role is not Role.DOCTOR:
+        raise workflows.not_found("Doctor")
+    return referrer
 
 
 async def _site_for(db: AsyncSession, actor: User, site_id: str | None) -> Site:
@@ -143,16 +198,16 @@ async def get_study(study_id: str, user: StudyViewer, svc: ServicesDep, db: DbDe
 
 @router.post("/{study_id}/publish")
 async def publish_study(
-    study_id: str, body: PublishRequest, radiologist: RadiologistUser, svc: ServicesDep, db: DbDep
+    study_id: str, body: PublishRequest, reporter: ReporterUser, svc: ServicesDep, db: DbDep
 ) -> StudyDetail:
     """Sign the report, render the PDF, store both files encrypted and anchor them on-chain."""
-    study, _ = await _visible_study(svc, db, radiologist, study_id)
-    enforce_rate_limit(svc.limits.chain_write, radiologist.id)
+    study, _ = await _visible_study(svc, db, reporter, study_id)
+    enforce_rate_limit(svc.limits.chain_write, reporter.id)
     study = await workflows.publish_study(
         svc,
         db,
         study=study,
-        radiologist=radiologist,
+        reporter=reporter,
         final_finding=body.final_finding,
         findings=body.findings or None,
         impression=body.impression,
@@ -164,7 +219,8 @@ async def publish_study(
 @router.delete("/{study_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def discard_study(study_id: str, actor: AcquiringUser, svc: ServicesDep, db: DbDep) -> None:
     study, _ = await _visible_study(svc, db, actor, study_id)
-    mine = study.created_by_id == actor.id or actor.role is Role.RADIOLOGIST
+    reporter = REPORTING_DISCIPLINE.get(actor.role) is study.discipline
+    mine = study.created_by_id == actor.id or reporter
     if study.status is not StudyStatus.DRAFT or not mine:
         raise HTTPException(status.HTTP_409_CONFLICT, "Only unreported studies can be discarded.")
     await workflows.discard_draft(db, study=study, actor=actor)

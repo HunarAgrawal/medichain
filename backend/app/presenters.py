@@ -3,10 +3,11 @@ has full access to a study; status views carry who, where and when, never what."
 
 from datetime import date
 
-from app.ml.catalog import ANALYSIS_TYPES
+from app.catalog import STUDY_TYPES, Discipline
 from app.models import AuditEvent, Organization, Site, Study, StudyStatus, User
 from app.schemas import (
     AuditEventOut,
+    LabResultOut,
     OrgOut,
     OrgSummary,
     PatientOut,
@@ -123,10 +124,12 @@ def study_detail(study: Study, view: View) -> StudyDetail:
         final_finding=study.final_finding if full else None,
         findings=study.findings if full else None,
         impression=study.impression if full else None,
+        # Lab suggestions come from reference intervals, so there is no AI to agree with.
         ai_agrees=(study.final_finding == ai_top)
-        if full and study.final_finding and ai_top
+        if full and study.final_finding and ai_top and study.discipline is Discipline.RADIOLOGY
         else None,
         has_heatmap=full and study.heatmap is not None,
+        results=[LabResultOut.model_validate(r) for r in study.results or []] if full else [],
         record=record,
     )
 
@@ -145,7 +148,7 @@ def audit_event(event: AuditEvent) -> AuditEventOut:
 
 
 def _summary_fields(study: Study, view: View) -> dict[str, object]:
-    analysis = ANALYSIS_TYPES[study.analysis_type]
+    analysis = STUDY_TYPES[study.analysis_type]
     top = None
     if view is View.FULL:
         top = study.final_finding or (
@@ -157,12 +160,13 @@ def _summary_fields(study: Study, view: View) -> dict[str, object]:
         "status": study.status,
         "priority": study.priority,
         "analysis_type": study.analysis_type,
+        "discipline": study.discipline,
         "analysis_name": analysis.name,
         "modality": analysis.modality,
         "patient": patient_summary(study.patient),
         "site": SiteRef(id=study.site.id, name=study.site.name, code=study.site.code),
         "referred_by": study.referrer.name if study.referrer else study.referrer_name,
-        "radiologist": user_summary(study.radiologist) if study.radiologist else None,
+        "reporter": user_summary(study.reporter) if study.reporter else None,
         "top_finding": top,
         # Being critical is clinical content too, so status views never see it.
         "critical": study.critical and view is View.FULL,

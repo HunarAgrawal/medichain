@@ -114,7 +114,7 @@ def test_reporting_anchors_an_encrypted_report_with_its_referrer(env: Env) -> No
     assert study["status"] == "published" and study["critical"] is True
     assert study["final_finding"] == "Glioma" and study["ai_agrees"] is True
     assert study["findings"] == "Left frontal lesion."
-    assert study["radiologist"]["name"] == "Dr. Rao" and study["turnaround_minutes"] >= 0
+    assert study["reporter"]["name"] == "Dr. Rao" and study["turnaround_minutes"] >= 0
     on_chain = env.registry.records[record["record_id"]]
     assert on_chain.patient == patient.wallet_address
     assert on_chain.issuer == radiologist.wallet_address

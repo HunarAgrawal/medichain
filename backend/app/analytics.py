@@ -9,10 +9,10 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ml.catalog import ANALYSIS_TYPES
+from app.catalog import DISCIPLINE_LABEL, Discipline
 from app.models import TAT_TARGET_MINUTES, Organization, Priority, Role, Study, StudyStatus, User
 from app.presenters import user_summary
-from app.schemas import DailyVolume, Kpis, PriorityTat, RadiologistLoad, SiteLoad, SiteRef
+from app.schemas import DailyVolume, Kpis, PriorityTat, ReporterLoad, SiteLoad, SiteRef
 
 
 def _median(values: list[int]) -> int | None:
@@ -30,7 +30,7 @@ def _within_target(study: Study) -> bool:
 
 async def compute(
     db: AsyncSession, org: Organization, days: int, now: datetime | None = None
-) -> tuple[Kpis, list[DailyVolume], list[PriorityTat], list[SiteLoad], list[RadiologistLoad]]:
+) -> tuple[Kpis, list[DailyVolume], list[PriorityTat], list[SiteLoad], list[ReporterLoad]]:
     now = now or datetime.now(UTC)
     zone = ZoneInfo(org.timezone)
     today = now.astimezone(zone).date()
@@ -54,8 +54,10 @@ async def compute(
     def local_day(value: datetime):
         return value.astimezone(zone).date()
 
+    # AI agreement covers imaging only; lab suggestions come from reference intervals, not AI.
+    imaging = [s for s in reported if s.discipline is Discipline.RADIOLOGY]
     agreed = [
-        s for s in reported if s.predictions and s.final_finding == str(s.predictions[0]["label"])
+        s for s in imaging if s.predictions and s.final_finding == str(s.predictions[0]["label"])
     ]
     kpis = Kpis(
         studies_today=sum(1 for s in in_period if local_day(s.created_at) == today),
@@ -66,16 +68,16 @@ async def compute(
         stat_waiting=sum(1 for s in drafts if s.priority is Priority.STAT),
         median_tat_minutes=_median([s.turnaround_minutes or 0 for s in reported]),
         within_target_pct=_pct(sum(1 for s in reported if _within_target(s)), len(reported)),
-        ai_agreement_pct=_pct(len(agreed), len(reported)),
+        ai_agreement_pct=_pct(len(agreed), len(imaging)),
         critical_findings=sum(1 for s in reported if s.critical),
         studies_in_period=len(in_period),
     )
 
-    modalities = sorted({t.modality for t in ANALYSIS_TYPES.values()})
+    disciplines = [DISCIPLINE_LABEL[d] for d in Discipline]
     acquired: defaultdict[object, Counter[str]] = defaultdict(Counter)
     signed: Counter[object] = Counter()
     for study in in_period:
-        acquired[local_day(study.created_at)][ANALYSIS_TYPES[study.analysis_type].modality] += 1
+        acquired[local_day(study.created_at)][DISCIPLINE_LABEL[study.discipline]] += 1
     for study in reported:
         if study.published_at:
             signed[local_day(study.published_at)] += 1
@@ -85,7 +87,7 @@ async def compute(
         daily.append(
             DailyVolume(
                 day=day,
-                by_modality={m: acquired[day][m] for m in modalities},
+                by_discipline={d: acquired[day][d] for d in disciplines},
                 reported=signed[day],
             )
         )
@@ -122,23 +124,23 @@ async def compute(
         key=lambda load: -load.studies,
     )
 
-    by_radiologist: defaultdict[str, list[Study]] = defaultdict(list)
+    by_reporter: defaultdict[str, list[Study]] = defaultdict(list)
     for study in reported:
-        if study.radiologist_id:
-            by_radiologist[study.radiologist_id].append(study)
-    radiologists = sorted(
+        if study.reporter_id:
+            by_reporter[study.reporter_id].append(study)
+    reporters = sorted(
         (
-            RadiologistLoad(
-                radiologist=user_summary(group[0].radiologist),
+            ReporterLoad(
+                reporter=user_summary(group[0].reporter),
                 reports=len(group),
                 median_tat_minutes=_median([s.turnaround_minutes or 0 for s in group]),
             )
-            for group in by_radiologist.values()
-            if group[0].radiologist
+            for group in by_reporter.values()
+            if group[0].reporter
         ),
         key=lambda load: -load.reports,
     )
-    return kpis, daily, tat, sites, radiologists
+    return kpis, daily, tat, sites, reporters
 
 
 async def headcount(db: AsyncSession, org_id: str) -> tuple[dict[str, int], int]:

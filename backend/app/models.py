@@ -25,6 +25,7 @@ from sqlalchemy import Enum as SqlEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator
 
+from app.catalog import Discipline
 from app.db import Base
 
 
@@ -64,15 +65,20 @@ class SiteKind(StrEnum):
 class Role(StrEnum):
     ADMIN = "admin"
     RADIOLOGIST = "radiologist"
-    TECHNICIAN = "technician"
+    PATHOLOGIST = "pathologist"
+    TECHNICIAN = "technician"  # radiographers and lab technologists
     DOCTOR = "doctor"  # a referring clinician
     PATIENT = "patient"
 
 
 # Roles that hold a platform-managed wallet, and of those, the ones verified on the registry.
-WALLET_ROLES = frozenset({Role.RADIOLOGIST, Role.DOCTOR, Role.PATIENT})
-CLINICIAN_ROLES = frozenset({Role.RADIOLOGIST, Role.DOCTOR})
-STAFF_ROLES = frozenset({Role.ADMIN, Role.RADIOLOGIST, Role.TECHNICIAN, Role.DOCTOR})
+WALLET_ROLES = frozenset({Role.RADIOLOGIST, Role.PATHOLOGIST, Role.DOCTOR, Role.PATIENT})
+CLINICIAN_ROLES = frozenset({Role.RADIOLOGIST, Role.PATHOLOGIST, Role.DOCTOR})
+# The discipline each reporting role signs for.
+REPORTING_DISCIPLINE = {
+    Role.RADIOLOGIST: Discipline.RADIOLOGY,
+    Role.PATHOLOGIST: Discipline.LABORATORY,
+}
 
 
 class Sex(StrEnum):
@@ -92,7 +98,7 @@ TAT_TARGET_MINUTES = {Priority.STAT: 60, Priority.URGENT: 4 * 60, Priority.ROUTI
 
 
 class StudyStatus(StrEnum):
-    DRAFT = "draft"  # analysed, awaiting the radiologist's report
+    DRAFT = "draft"  # analysed or flagged, awaiting the signed report
     PUBLISHED = "published"  # signed, anchored on-chain and delivered
 
 
@@ -188,8 +194,11 @@ class SessionToken(Base):
 
 
 class Study(Base):
-    """One imaging study: ordered and acquired at a site, pre-read by AI, reported by a
-    radiologist, then anchored on-chain and delivered to the patient and referring doctor."""
+    """One diagnostic study: an imaging scan pre-read by AI, or a laboratory panel flagged
+    against reference intervals. A radiologist or pathologist reports it; the signed report is
+    anchored on-chain and delivered to the patient and the referring doctor.
+
+    The sealed "scan" is the study's source data: the image, or the lab values as JSON."""
 
     __tablename__ = "studies"
     __table_args__ = (UniqueConstraint("org_id", "accession"),)
@@ -200,15 +209,17 @@ class Study(Base):
     accession: Mapped[str] = mapped_column(String(24))
     patient_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     created_by_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
-    radiologist_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True)
+    reporter_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True)
     referrer_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True)
     referrer_name: Mapped[str | None] = mapped_column(String(100))  # an outside doctor
     analysis_type: Mapped[str] = mapped_column(String(32))
+    discipline: Mapped[Discipline] = mapped_column(_enum(Discipline), index=True)
     priority: Mapped[Priority] = mapped_column(_enum(Priority), index=True)
     indication: Mapped[str | None] = mapped_column(String(300))
     status: Mapped[StudyStatus] = mapped_column(_enum(StudyStatus), index=True)
     model_id: Mapped[str] = mapped_column(String(200))
     predictions: Mapped[list[dict[str, object]]] = mapped_column(JSON)
+    results: Mapped[list[dict[str, object]] | None] = mapped_column(JSON)  # laboratory values
     final_finding: Mapped[str | None] = mapped_column(String(60))
     findings: Mapped[str | None] = mapped_column(Text)
     impression: Mapped[str | None] = mapped_column(Text)
@@ -232,7 +243,7 @@ class Study(Base):
     site: Mapped[Site] = relationship(lazy="joined")
     patient: Mapped[User] = relationship(foreign_keys=[patient_id], lazy="joined")
     created_by: Mapped[User] = relationship(foreign_keys=[created_by_id], lazy="joined")
-    radiologist: Mapped[User | None] = relationship(foreign_keys=[radiologist_id], lazy="joined")
+    reporter: Mapped[User | None] = relationship(foreign_keys=[reporter_id], lazy="joined")
     referrer: Mapped[User | None] = relationship(foreign_keys=[referrer_id], lazy="joined")
 
     @property

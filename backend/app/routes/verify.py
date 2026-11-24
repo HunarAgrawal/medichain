@@ -9,9 +9,9 @@ from sqlalchemy import select
 
 from app import audit
 from app.audit import Action
+from app.catalog import STUDY_TYPES
 from app.deps import DbDep, ServicesDep, client_ip, enforce_rate_limit
 from app.imaging import read_upload
-from app.ml.catalog import ANALYSIS_TYPES
 from app.models import Study, User
 from app.schemas import Issuer, VerifyResponse
 
@@ -64,7 +64,7 @@ async def verify_report(
         )
         if issuer
         else None,
-        analysis_name=ANALYSIS_TYPES[study.analysis_type].name if study else None,
+        analysis_name=STUDY_TYPES[study.analysis_type].name if study else None,
         accession=study.accession if study else None,
         matches_expected_record=(found.record_id == expected) if expected else None,
     )

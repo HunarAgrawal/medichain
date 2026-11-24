@@ -44,7 +44,7 @@ async def dashboard(
     db: DbDep,
     days: Annotated[int, Query(ge=7, le=90)] = 30,
 ) -> Dashboard:
-    kpis, daily, tat, sites, radiologists = await analytics.compute(db, admin.organization, days)
+    kpis, daily, tat, sites, reporters = await analytics.compute(db, admin.organization, days)
     staff, patients = await analytics.headcount(db, admin.org_id)
     return Dashboard(
         period_days=days,
@@ -52,7 +52,7 @@ async def dashboard(
         daily=daily,
         tat_by_priority=tat,
         sites=sites,
-        radiologists=radiologists,
+        reporters=reporters,
         staff=staff,
         patients=patients,
         services={"chain": await _chain_check(svc), "storage": await _storage_check(svc)},

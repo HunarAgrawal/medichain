@@ -165,10 +165,10 @@ def test_the_dashboard_reports_volume_turnaround_and_ai_agreement(env: Env) -> N
     assert kpis["awaiting_report"] == 1 and kpis["stat_waiting"] == 1
     assert kpis["ai_agreement_pct"] == 50.0 and kpis["critical_findings"] == 1
     assert kpis["within_target_pct"] == 100.0
-    assert len(board["daily"]) == 7 and board["daily"][-1]["by_modality"]["MRI"] == 3
+    assert len(board["daily"]) == 7 and board["daily"][-1]["by_discipline"]["Imaging"] == 3
     assert [t["priority"] for t in board["tat_by_priority"]] == ["stat", "urgent", "routine"]
-    assert board["radiologists"][0]["radiologist"]["name"] == "Dr. Rao"
-    assert board["radiologists"][0]["reports"] == 2
+    assert board["reporters"][0]["reporter"]["name"] == "Dr. Rao"
+    assert board["reporters"][0]["reports"] == 2
     assert board["sites"][0]["awaiting"] == 1
     assert board["staff"]["radiologist"] == 1 and board["patients"] == 1
     assert board["services"]["chain"]["ok"] and board["services"]["storage"]["ok"]

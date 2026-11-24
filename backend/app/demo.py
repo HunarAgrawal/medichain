@@ -1,8 +1,9 @@
 """The demo workspace (DEMO_MODE=true). Never enabled in production.
 
-A fictional Indian hospital with an in-house radiology department, a standalone imaging centre
-and a partner clinic whose studies are reported remotely, so a single workspace shows Medichain
-for hospitals, imaging centres and teleradiology alike. All names and numbers are invented.
+A fictional Indian hospital with an in-house radiology department and laboratory, a standalone
+imaging centre and a partner clinic whose studies are reported remotely, so a single workspace
+shows Medichain for hospitals, imaging centres, teleradiology and pathology labs alike. All names
+and numbers are invented.
 """
 
 from dataclasses import dataclass
@@ -39,7 +40,7 @@ class DemoSite:
 MAIN, CENTRE, PARTNER = "MAIN", "S18", "LOTUS"
 
 DEMO_SITES = [
-    DemoSite(MAIN, "Main campus · Radiology", SiteKind.RADIOLOGY_DEPARTMENT, "Noida"),
+    DemoSite(MAIN, "Main campus", SiteKind.RADIOLOGY_DEPARTMENT, "Noida"),
     DemoSite(CENTRE, "Arogya Diagnostics, Sector 18", SiteKind.IMAGING_CENTRE, "Noida"),
     DemoSite(PARTNER, "Lotus Clinic (partner)", SiteKind.PARTNER, "Ghaziabad"),
 ]
@@ -54,7 +55,9 @@ class DemoStaff:
     site: str | None = None
     qualification: str | None = None
     registration: str | None = None
-    persona: str | None = None  # shown on the login page when set
+    # Shown on the sign-in page when set: a short role label and one line about the job.
+    label: str | None = None
+    persona: str | None = None
 
     @property
     def email(self) -> str:
@@ -68,6 +71,7 @@ DEMO_STAFF = [
         "Rahul Verma",
         "Radiographer",
         site=MAIN,
+        label="Radiographer",
         persona="Registers patients, acquires scans and sends them for reporting.",
     ),
     DemoStaff(
@@ -78,7 +82,8 @@ DEMO_STAFF = [
         site=MAIN,
         qualification="MD (Radiodiagnosis)",
         registration="UPMC-DEMO-21458",
-        persona="Reports the worklist with an AI pre-read and signs reports.",
+        label="Radiologist",
+        persona="Reports scans with an AI pre-read and signs the report.",
     ),
     DemoStaff(
         "vikram.iyer",
@@ -87,7 +92,28 @@ DEMO_STAFF = [
         "Consultant Radiologist · Teleradiology",
         qualification="DNB (Radiodiagnosis)",
         registration="KMC-DEMO-77310",
+        label="Teleradiologist",
         persona="Reports studies from the partner clinic remotely.",
+    ),
+    DemoStaff(
+        "imran.sheikh",
+        Role.TECHNICIAN,
+        "Imran Sheikh",
+        "Lab technologist",
+        site=MAIN,
+        label="Lab technologist",
+        persona="Enters blood and drug test results; abnormal values flag themselves.",
+    ),
+    DemoStaff(
+        "farah.siddiqui",
+        Role.PATHOLOGIST,
+        "Dr. Farah Siddiqui",
+        "Consultant Pathologist",
+        site=MAIN,
+        qualification="MD (Pathology)",
+        registration="UPMC-DEMO-61237",
+        label="Pathologist",
+        persona="Verifies flagged lab results and signs the lab report.",
     ),
     DemoStaff(
         "arjun.mehta",
@@ -96,6 +122,7 @@ DEMO_STAFF = [
         "Pulmonologist",
         qualification="MD (Pulmonary Medicine)",
         registration="DMC-DEMO-40122",
+        label="Referring doctor",
         persona="Refers patients and gets their reports the moment they are signed.",
     ),
     DemoStaff(
@@ -103,6 +130,7 @@ DEMO_STAFF = [
         Role.ADMIN,
         "Neha Kapoor",
         "Hospital administrator",
+        label="Admin",
         persona="Runs the workspace: dashboard, staff, sites and the audit log.",
     ),
     DemoStaff(
@@ -157,6 +185,19 @@ _MALE = (
 WALK_IN_NAMES = [(n, Sex.FEMALE) for n in _FEMALE.split("|")] + [
     (n, Sex.MALE) for n in _MALE.split("|")
 ]
+
+# Ages that fit each walkthrough patient's story; everyone else gets a random adult age.
+STORY_AGES = {
+    "Aman Gupta": 54,
+    "Meera Iyer": 38,
+    "Rohit Bansal": 41,
+    "Lakshmi Narayanan": 62,
+    "Karan Mehra": 24,
+    "Sunita Devi": 47,
+    "Ramesh Chandra": 63,
+    "Nikhil Bhat": 26,
+    "Pooja Patel": 29,
+}
 
 # Outside doctors who refer to the imaging centre and the partner clinic without an account.
 EXTERNAL_REFERRERS = [
